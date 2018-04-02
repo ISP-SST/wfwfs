@@ -1,0 +1,17 @@
+/*
+ * Auto-generated file for revision information
+ * If you edit this file things may break and/or get overwritten.
+ */
+
+#include "revision.hpp"
+
+
+const int wfwfs::versionMajor = ${${REVNAME}_VERSION_MAJOR};
+const int wfwfs::versionMinor = ${${REVNAME}_VERSION_MINOR};
+const int wfwfs::versionPatch = ${${REVNAME}_VERSION_PATCH};
+const int wfwfs::versionCommit = ${${REVNAME}_VERSION_COMMIT};
+
+// label/hash + comment
+const char* wfwfs::commitMessage = "${REVISION_DESCRIPTION}";
+const char* wfwfs::commitTime = "${REVISION_COMMIT_TIME}";
+const char* wfwfs::buildTime = "${REVISION_BUILD_TIME}";
