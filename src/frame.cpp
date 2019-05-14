@@ -28,6 +28,7 @@
 using namespace wfwfs;
 using namespace std;
 
+namespace bpx = boost::posix_time;
 
 FrameQueue::FrameQueue() : frameSize(0), blockSize(0), counter(1), width(0), height(0), depth(0) {
     
@@ -111,7 +112,30 @@ void FrameQueue::queue( Frame& f ) {
 
 }
 
-        
+
+size_t FrameQueue::getNearestID( const bpx::ptime& timestamp ) {
+    
+    size_t nearestID(0);                                // 0 will translate to getting latest frame in the queue.
+    bpx::time_duration smallest_difference(24,0,0,0);   // initialize to something large (24-hours)
+    
+    unique_lock<mutex> lock( mtx );
+    
+    for( const auto& fp: frames_by_id ) {
+        bpx::time_duration diff( timestamp - fp.second.timestamp );
+        if( diff.is_negative() ) diff.invert_sign();
+        if( nearestID && (diff > smallest_difference) ) { // we passed the minimum since frames_by_id is sequential
+            break;
+        } else if( diff < smallest_difference ) {
+            smallest_difference = diff;
+            nearestID = fp.first;
+        }
+    }
+    
+    return nearestID;
+    
+}
+    
+
 Frame& FrameQueue::getFrame( size_t id, bool wait ) {
 
     unique_lock<mutex> lock( mtx );

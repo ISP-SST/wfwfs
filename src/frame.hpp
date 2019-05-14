@@ -80,6 +80,7 @@ namespace wfwfs {
         Frame& getEmpty( void );
         void queue( Frame& );
         
+        size_t getNearestID( const boost::posix_time::ptime& timestamp );
         Frame& getFrame( size_t id, bool wait=true );
         void dropFrame( size_t id );
         
