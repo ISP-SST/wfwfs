@@ -157,7 +157,7 @@ void SeeingLog::printHeader( void ) {
 }
 
 
-void SeeingLog::run( std::vector<DimmSet>& dimm_sets ) {
+void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
     
     using namespace std::chrono;
 

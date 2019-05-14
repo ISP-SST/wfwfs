@@ -42,7 +42,7 @@ float Seeing::lambda(500e-9);
 double Seeing::radians_per_pixel(0);
 double Seeing::dimm_K(0);
 
-        
+
 Seeing::Seeing( void ) : dsID(1) {
 
     precalculate();
@@ -58,46 +58,42 @@ void Seeing::find_nominal_gridpoints( PointI detector_size ) {
    
 }
 
+
 void Seeing::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     
     string output_base = cfg_ptree.get<string>( "outputdir", "/data/" );
-
-    
-    for( auto& node : cfg_ptree ) {
-        if( iequals( node.first, "DIMM" ) ) {
-            DimmSet ds( dsID++ );
-            ds.parsePropertyTree( node.second );
-            dimm_sets.push_back(std::move(ds));
-        }
-    }
-
-    for( auto& node : cfg_ptree ) { // do the logs separately to ensure all DimmSets are already loaded/created.
-        if( iequals( node.first, "LOG" ) ) {
-            string outputdir = node.second.get<string>( "outputdir", output_base+"/logs/" );
-            string name = node.second.get<string>( "name", "log" );
-            int interval = node.second.get<int>( "interval", 1 );
-            string columns = node.second.get<string>( "columns", "" );
-            if( columns.empty() ) {
-                bool first(true);
-                for( auto& ds: dimm_sets ) {
-                    if( !first ) columns += " ";
-                    columns += ds.get_name();
-                }
-            }
-            SeeingLog sl( name, interval );
-            sl.setDir( outputdir );
-            sl.addColumns( columns );
-            logs.push_back( std::move(sl) );
-        }
-    }
-
     arcsecs_per_pixel = cfg_ptree.get<float>( "arcsecs_per_pixel", arcsecs_per_pixel );
     diam = cfg_ptree.get<float>( "subaperture_diameter", diam );
     diam_px = cfg_ptree.get<float>( "subaperture_pixels", diam_px );
     lambda = cfg_ptree.get<float>( "wavelength", lambda );
     pixelsize = cfg_ptree.get<float>( "pixelsize", pixelsize );
-
+    
     precalculate();
+
+    for( auto& node : cfg_ptree ) {
+        if( iequals( node.first, "DIMM" ) ) {
+            DimmSet ds( dsID++ );
+            ds.parsePropertyTree( node.second );
+            dimm_sets.push_back(std::move(ds));
+        } else if( iequals( node.first, "LOG" ) ) {
+            SeeingLog sl;
+            sl.parsePropertyTree( node.second, output_base );
+            logs.push_back( std::move(sl) );
+        }
+    }
+    
+    string default_columns;
+    for( auto& ds: dimm_sets ) {    // add default logging (all defined DIMM sets)
+        default_columns += ds.get_name() + " ";
+    }
+    boost::trim( default_columns );
+    if( !default_columns.empty() ) {
+        for( auto& l: logs ) {
+            if( !l.hasColumns() ) {
+                l.addColumns( default_columns );
+            }
+        }
+    }
 
     
 }
@@ -151,15 +147,15 @@ template void Seeing::copy_cell_data<uint8_t>( Frame&, float*, float*, size_t, i
 template void Seeing::copy_cell_data<uint16_t>( Frame&, float*, float*, size_t, int );
 
 
-void Seeing::process( boost::asio::io_service& ios ) {
+void Seeing::process( double avg_interval ) {
     
     uint64_t tmp[256*256];
     
     for( auto& ds: dimm_sets ) {
 //        ios.post( [&](){
 //            uint64_t tmp[256*256];
-            ds.measure_shifts( tmp );
-            ds.calculate_dimms();
+            ds.measure_shifts( tmp, avg_interval );
+            ds.calculate_dims();
 //            ds.calculate_r0();
 //        });
     }
@@ -217,13 +213,6 @@ PointD Seeing::apply_dimm_equations( PointD var, float separation ) {
     ret *= dimm_K;
     
     return ret;
-    
-}
-
-
-    
-    
-    
     
 }
 

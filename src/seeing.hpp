@@ -50,7 +50,7 @@ namespace wfwfs {
         template <typename T>
         void copy_cell_data( Frame&, float*, float*, size_t, int );
         
-        void process( boost::asio::io_service& );
+        void process( double );
         
         void precalculate( void );
         static PointD apply_dimm_equations( PointD var, float separation );

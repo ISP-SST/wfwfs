@@ -81,6 +81,7 @@ namespace wfwfs {
         void copy_cell_data( Frame& f );
         
         void threadLoop( void );
+        void maintenance( void );
         bool doWork(void);
         void setThreads( int nThreads );
         
@@ -99,6 +100,9 @@ namespace wfwfs {
         
         void start_cam( void );
         void stop_cam( void );
+
+        void play( void );
+        void pause( void );
 
         std::string list_calib( void );
         std::string list_calibs( void );

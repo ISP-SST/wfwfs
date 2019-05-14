@@ -303,7 +303,7 @@ Daemon::Daemon( bpo::variables_map& vm ) : Application( vm, LOOP ), settings( vm
         throw;
     }
    
-
+seeing.start_logs();
 }
 
 
@@ -367,15 +367,15 @@ void Daemon::init(void) {
     add_meta( "DETMODEL", cam->info.model );
     add_meta( "DETFIRM", cam->info.firmware_version );
     
-    size_t nFrames = cfg_ptree.get<size_t>( "nframes", 10 );
-    fqueue.resize( cam->cfg.width, cam->cfg.height, nFrames, cam->cfg.depth );
+    size_t frame_queue = cfg_ptree.get<size_t>( "frame_queue", 10 );
+    fqueue.resize( cam->cfg.width, cam->cfg.height, frame_queue, cam->cfg.depth );
     
     updateCalibID();
     
     dd.resize( fqueue.width, fqueue.height );
     ff.resize( fqueue.width, fqueue.height );
     gg.resize( fqueue.width, fqueue.height );
-    
+
     dd = 0.0;
     ff = 1.0;
     
@@ -431,21 +431,20 @@ void Daemon::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
                 string key = meta.first;
                 add_meta( key, value );
             }
-        }
-    }
-
-    string camType = cfg_ptree.get<string>( "camera_type", "" );
-
-    if( boost::iequals( camType, "pleora" ) ) {
+        } else if( iequals( node.first, "CAMERA" ) ) {
+            string camType = node.second.get<string>( "camera_type", "" );
+            if( boost::iequals( camType, "pleora" ) ) {
 #ifdef WFWFS_WITH_PLEORA
-        cam.reset( new PleoraCam( cfg_ptree ) );
+                cam.reset( new PleoraCam( node.second ) );
 #else
-        throw runtime_error( "Pleora camera not supported." );
+                throw runtime_error( "Support for Pleora camera not enabled/detected." );
 #endif
-    } else if( bfs::exists( camType ) ) {
-        cam.reset( new FileCam( cfg_ptree ) );
-    } else {
-        throw runtime_error("camera_type not valid: \""+camType+"\"");
+            } else if( bfs::exists( camType ) ) {
+                cam.reset( new FileCam( node.second ) );
+            } else {
+                throw runtime_error("camera_type not valid: \""+camType+"\"");
+            }
+        }
     }
 
     seeing.parsePropertyTree( cfg_ptree );
@@ -481,8 +480,7 @@ void Daemon::queue_frame( const uint8_t* data, bpx::ptime ts ) {
         bpx::ptime cell_time = bpx::microsec_clock::universal_time();
         fqueue.queue( f );
         bpx::ptime queue_time = bpx::microsec_clock::universal_time();
-        seeing.process( ioService );
-        //ioService.post( bind(&Seeing::process, &seeing, std::ref(ioService) ) );
+        seeing.process( avg_interval );
         bpx::ptime proc_time = bpx::microsec_clock::universal_time();
         bpx::time_duration rt(read_time - start_time);
         bpx::time_duration ct(cell_time - read_time);
@@ -499,7 +497,7 @@ void Daemon::queue_frame( const uint8_t* data, bpx::ptime ts ) {
         copy_cell_data( f );
         fqueue.queue( f );
         //seeing.process( ioService );
-        ioService.post( bind(&Seeing::process, &seeing, std::ref(ioService) ) );
+        ioService.post( bind(&Seeing::process, &seeing, avg_interval ) );
     }
     
     previous_frame = ts;
@@ -671,7 +669,7 @@ void Daemon::save_burst( int bcount, int scannum, long framenum, string statestr
     Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "FILENAME", bfs::path(filename).filename().string() ) );
     Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "SCANNUM", scannum ) );
     Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "FRAMENUM", framenum ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "STATE", statestr ) );
+    if( !statestr.empty() ) Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "STATE", statestr ) );
     
     if( sum ) {
         Array<uint32_t> acc( fqueue.height, fqueue.width );
@@ -795,17 +793,33 @@ void Daemon::threadLoop( void ) {
 }
 
 
+void Daemon::maintenance( void ) {
+
+
+    timer.expires_from_now( boost::posix_time::seconds( 5 ) );
+    
+    seeing.maintenance();
+    
+    timer.async_wait( boost::bind( &Daemon::maintenance, this ) );
+    
+}
+
+
 bool Daemon::doWork( void ) {
 
     try {
         
         // Add some threads for the async work.
-        int nT = 10; // TBD: always start with a fixed number?
-        setThreads( nT );
+
+        timer.expires_from_now( boost::posix_time::seconds( 5 ) );
+        timer.async_wait( boost::bind( &Daemon::maintenance, this ) );
+        
+        setThreads( thread::hardware_concurrency() );
 
         while( !runMode ) {
-            usleep( 1000000 );
+            std::this_thread::sleep_for( std::chrono::milliseconds(100) );
         }
+        
         // the io_service will keep running/blocking until stop is called, then wait for the threads to make a clean exit.
         pool.join_all();
 
@@ -947,6 +961,12 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         replyStr = "OK :Bye!";
         restart();
         disconnect = true;
+    } else if( command == "run" ) {
+        replyStr = "OK run";
+        run();
+    } else if( command == "pause" ) {
+        replyStr = "OK pause";
+        pause();
     } else if( command == "segfault" ) {
         ioService.post( [](){
             std::this_thread::sleep_for( std::chrono::seconds(1) );  // delay for reply to be sent back
@@ -972,6 +992,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         } else if( what == "logs" ) {
             seeing.start_logs();
             replyStr = "OK start logs";
+        } else if( what.empty() ) {
+            seeing.start();
+            replyStr = "OK start";
         } else {  // unrecognized
             if( !what.empty() ) replyStr = "start Huh?";
         }
@@ -984,6 +1007,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         } else if( what == "logs" ) {
             seeing.stop_logs();
             replyStr = "OK stop logs";
+        } else if( what.empty() ) {
+            seeing.stop();
+            replyStr = "OK stop";
         } else {  // unrecognized
             if( !what.empty() ) replyStr = "stop Huh?";
         }
@@ -1058,7 +1084,6 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         if( what == "exposure" || what == "gain" ) {    // settings might have changed
             updateCalibID();
         }
-        
 
     } else if( command == "get" ) {
         string what = popword( line );
@@ -1324,6 +1349,22 @@ void Daemon::stop_cam( void ) {
 }
 
 
+void Daemon::play( void ) {
+    
+    if( !cam ) return;
+    
+    // start logs & bursts
+
+}
+
+
+void Daemon::pause( void ) {
+    
+    // stop logs & bursts
+    
+}
+
+
 string Daemon::list_calib( void ) {
     
     CalibSets& cs = getCalibSet( current_calib );
@@ -1396,6 +1437,7 @@ void Daemon::load_dark( int id ) {
         bfs::create_symlink( bfs::relative(tmpDD[id].filename, calibPath), link_name );
         if( !bfs::exists(link_name) ) {
             readFile( tmpDD[id].filename.string(), dd );
+            ddPtr = dd.get();
         }
         update_gain();
     }
@@ -1454,8 +1496,8 @@ void Daemon::makeHdr( std::shared_ptr<Fits>& hdr ) {
     cards.insert( cards.end(), meta_cards.begin(), meta_cards.end() );      // copy meta cards.
 
     // update/add some (maybe) modified values
-    Fits::updateCard( cards, Fits::makeCard( "OBSERVER", extra_meta.observer ) );
-    Fits::updateCard( cards, Fits::makeCard( "OBJECT", extra_meta.target ) );
+    if( !extra_meta.observer.empty() ) Fits::updateCard( cards, Fits::makeCard( "OBSERVER", extra_meta.observer ) );
+    if( !extra_meta.target.empty() ) Fits::updateCard( cards, Fits::makeCard( "OBJECT", extra_meta.target ) );
     Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATAMIN", 0 ) );
     Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATAMAX", (1<<fqueue.depth)-1 ) );
     Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "XPOSURE", cam->get_exposure(), "[s] Exposure time" ) );
@@ -1471,7 +1513,7 @@ void Daemon::makeHdr( std::shared_ptr<Fits>& hdr ) {
     while( !comments.empty() ) {
         string comment = popword( comments, ";" );
         if( !comment.empty() ) {
-            Fits::updateCard( cards, Fits::makeCard( "COMMENT", comment ) );
+            Fits::insertCard( cards, Fits::makeCard( "COMMENT", comment ) );
         }
     }
 
@@ -1591,7 +1633,7 @@ void Daemon::darkburst( size_t n ) {
     
     bpx::ptime timestamp = bpx::second_clock::universal_time();
     string date = to_iso_extended_string( timestamp.date() );
-    string datetime = to_iso_extended_string( timestamp);
+    string datetime = to_iso_extended_string( timestamp );
 
     bfs::path tmpFN( outputdir );
     tmpFN /= "calib/";
@@ -1599,6 +1641,8 @@ void Daemon::darkburst( size_t n ) {
     tmpFN /= "dark_"+datetime+".fits";
     
     do_accumulation( dd, acc, tmpFN.string(), n );
+    
+    load_dark(-1);
     
 }
 
@@ -1617,18 +1661,29 @@ void Daemon::flatburst( size_t n ) {
     tmpFN /= "flat_"+datetime+".fits";
     
     do_accumulation( ff, acc, tmpFN.string(), n );
+ 
+    load_flat(-1);
     
 }
 
 
 void Daemon::update_gain( void ) {
     
-    std::transform( ff.get(), ff.get()+ff.nElements(), dd.get(), gg.get(), std::minus<float>() );
+    if( !ff.sameSizes(dd) ) {
+        throw std::logic_error("Daemon::update_gain: FF & DD does not have the same dimensions." );
+    }
+    
+    if( !ff.sameSizes(gg) ) {
+        gg.resize( ff.dimensions(true) );
+        ggPtr = gg.get();
+    }
+
+    size_t nElements = ff.nElements();
+    std::transform( ff.get(), ff.get()+nElements, ddPtr, ggPtr, std::minus<float>() );
     
     ArrayStats stats;
     stats.getMinMaxMean( gg );
-    float* ptr = gg.get();
-    transform( ptr, ptr+gg.nElements(), ptr, [&](float a) {
+    transform( ggPtr, ggPtr+nElements, ggPtr, [&](float a) {
             if( a > 0.0 ) {
                 double tmp = stats.max/a;
                 if( tmp > 4 ) return 4.0;
@@ -1640,6 +1695,22 @@ void Daemon::update_gain( void ) {
     
     stats.getStats(gg);
     gg /= stats.mean*0.99;   // NOTE: the 0.99 is just to approximately compensate for the intensity decrease from dd subtraction
+
+    try {
+        bfs::path tmpFN( outputdir );
+        tmpFN /= "calib/";
+        tmpFN /= "gaintable.fits";
+        if( bfs::exists(tmpFN) && !bfs::remove(tmpFN) ) {
+            cerr << boost::format( "Failed to remove existing file: %s" ) % tmpFN << endl;
+            return;
+        }
+
+        Fits::write( tmpFN.string(), gg );
+    } catch( const std::exception& ) {
+        // TODO
+    } catch ( ... ) {
+        // ignore unrecognized exceptions.
+    }
     
 }
 

@@ -51,7 +51,6 @@ namespace wfwfs {
         void close( void );
         void reopen( void ) { close(); open(); };
         void check( void );
-
         
         std::string get_name( void ) { return name; };
         void set_min_lock( float ml ) { min_lock = ml; };
@@ -60,10 +59,11 @@ namespace wfwfs {
         void addColumns( std::string );
         void printHeader( void );
         
-        void run( std::vector<DimmSet>& );
+        void start( std::vector<DimmSet>& );
         void stop( void );
         
     private:
+        
         std::string dir;
         std::string name;
         float min_lock;                             // (fraction) Minimum lock-ratio for printing r0 to file.
