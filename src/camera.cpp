@@ -35,10 +35,11 @@ Camera::Camera( boost::property_tree::ptree& pt ) : settings(pt), running(false)
     cfg.height = settings.get<int>( "height", 1024 );
     cfg.width = settings.get<int>( "width", 1024 );
     cfg.depth = settings.get<int>( "depth", 8 );
-    cfg.n_buf = settings.get<int>( "nframes", 8 );
+    cfg.n_buf = settings.get<int>( "n_buf", 8 );
  
     state.exposure = settings.get<double>( "exposure", 0.01 );
-    state.interval = settings.get<double>( "interval", 0.01 );
+    state.interval = settings.get<double>( "interval", 0.1 );
+    state.gain = settings.get<double>( "gain", 0 );
  
     info.id = settings.get<string>( "camera_id", "" );
 
