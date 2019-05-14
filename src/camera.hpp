@@ -70,6 +70,7 @@ namespace wfwfs {
         virtual double get_interval( void ) const { std::lock_guard<std::mutex> lock(mtx); return state.interval; };
         virtual double get_offset( void ) const { std::lock_guard<std::mutex> lock(mtx); return state.offset; };
         virtual double get_temp( void ) const { std::lock_guard<std::mutex> lock(mtx); return state.temp; };
+        virtual PointI get_size( void ) const { std::lock_guard<std::mutex> lock(mtx); return PointI( cfg.height, cfg.width ); };
 
         std::vector<std::string> get_messages( void ) {
             std::lock_guard<std::mutex> lock(mtx);
