@@ -1,0 +1,80 @@
+outputdir = /data/wfwfs
+frame_queue = 1000
+arcsecs_per_pixel = 0.21
+subaperture_diameter = 0.13245
+subaperture_pixels = 291.25
+wavelength = 500e-9
+camera {
+    n_buf = 20
+    depth = 12
+    width = 2080
+    height = 2080
+    offset_x = 0
+    offset_y = 0
+    exposure = 0.002
+    interval = 0.08
+    gain = 0
+    camera_id = camXXXVI
+    camera_type = pleora
+}
+meta {
+    OBSERVER = SST Automatic
+    CAMERA = wfwfs
+    INSTRUME = WFWFS
+    TELESCOP = Swedish 1-m Solar Telescope
+    ORIGIN = Institute for Solar Physics
+}
+xburst {
+    trigger = 4-corners 15
+    limit = 0.08
+    nframes = 20
+    count = 100
+    prefix = data
+    compress = 0
+}
+log {
+    name = wfwfs_r0
+    min_lock = 0.3
+    interval = 1
+    columns = 4-corners 2 4-corners 5 4-corners 180 4-corners_sub 2 4-corners_sub 5 4-corners_sub 180
+}
+dimm {
+    name 4-corners
+    cell_size = 51
+    cell_pos = 529,461,531,1611,1027,747,1524,460,1527,1613
+    ref_cell = 2
+    max_shift = 10
+    min_lock = 0.3
+    cadence = 1
+    duration = 1
+    running_average = 30
+    auto_adjust = 0
+}
+dimm {
+    name 4-corners_sub
+    cell_size = 51
+    cell_pos = 529,461,531,1611,1027,747,1524,460,1527,1613
+    ref_cell = 2
+    subcell_pos = -17,-17,-17,0,-17,17,0,-17,0,0,0,17,17,-17,17,0,17,17
+    subcell_size = 17
+    max_shift = 10
+    min_lock = 0.3
+    cadence = 1
+    duration = 1
+    running_average = 30
+    auto_adjust = 0
+}
+xdimm {
+    name 4-corners_sub
+    cell_size = 51
+    cell_pos = 529,461,531,1611,1027,747,1524,460,1527,1613
+    ref_cell = 2
+    subcell_pos = -17,-17,-17,0,-17,17,0,-17,0,0,0,17,17,-17,17,0,17,17
+    subcell_size = 17
+    max_shift = 10
+    min_lock = 0.3
+    cadence = 1
+    duration = 1
+    running_average = 30
+    auto_adjust = 0
+}

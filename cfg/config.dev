@@ -1,0 +1,109 @@
+outputdir = /scratch/tomas/wfwfs/slask/
+frame_queue = 50
+arcsecs_per_pixel = 0.21
+subaperture_diameter = 0.135
+subaperture_pixels = 291.25
+wavelength = 500e-9
+camera {
+    n_buf = 20
+    depth = 8
+    width = 2080
+    height = 2080
+    offset_x = 0
+    offset_y = 0
+    exposure = 0.002
+    interval = 0.08
+    gain = 0
+    camera_id = camXXXVI
+    camera_type = /scratch/tomas/wfwfs/ffov_8/
+}
+meta {
+    OBSERVER = Tomas Hillberg
+    CAMERA = wfwfs
+    INSTRUME = WFWFS
+    TELESCOP = Development - No Live images
+    ORIGIN = Development
+}
+save {
+    name = %DATE%/data/%TIME%/wfwfs_%FRAME%.fits
+    trigger = r0 30
+    limit = 0.08
+    poll_interval = 10
+    frames_per_file = 20
+    delay = -30
+    duration = 40
+    min_interval = 300
+    compress = 1
+}
+save {
+    name = %DATE%/flats/%TIME%/flat_%FRAME%.fits
+    acc_name = calib/%DATE%/flat_%TIME%.fits
+    trigger = turret
+    frames_per_file = 20
+    delay = 60
+    nframes = 1000
+    compress = 1
+}
+save {
+    name = %DATE%/darks/%TIME%/dark_%FRAME%.fits
+    acc_name = calib/%DATE%/flat_%TIME%.fits
+    trigger = time 04:00
+    frames_per_file = 20
+    nframes = 1000
+    compress = 1
+}
+log {
+    name = r0_log
+    interval = 1
+    min_lock = 0.3
+    columns = r0 r0 2 r0 10 r0_sub r0_sub 2 r0_sub 10
+}
+dimm {
+    name r0
+    cell_size = 51
+    cell_pos = 527,461,532,1612,1027,747,1526,459,1528,1613
+    ref_cell = 2
+    max_shift = 10
+    min_lock = 0.3
+    cadence = 1
+    duration = 5
+    running_average = 30
+}
+dimm {
+    name r0_sub
+    cell_size = 51
+    cell_pos = 527,461,532,1612,1027,747,1526,459,1528,1613
+    ref_cell = 2
+    subcell_pos = -17,-17,17,17,-17,17,17,-17
+    subcell_size = 17
+    max_shift = 10
+    min_lock = 0.3
+    cadence = 1
+    duration = 5
+    running_average = 30
+}
+xdimm {
+    name r0_sub
+    cell_size = 51
+    cell_pos = 527,461,532,1612,1027,747,1526,459,1528,1613
+    ref_cell = 2
+    subcell_pos = -17,-17,-17,0,-17,17,0,-17,0,0,0,17,17,-17,17,0,17,17
+    subcell_size = 17
+    max_shift = 10
+    min_lock = 0.3
+    cadence = 1
+    duration = 5
+    running_average = 30
+}
+xdimm {
+    name 5-row
+    cell_size = 64
+    cell_pos = 1022,362,1022,707,1022,1052,1022,1397,1022,1702
+    ref_cell = 2
+    max_shift = 10
+    cadence = 1
+    duration = 1
+    running_average = 10
+    auto_adjust = 0
+}
+
