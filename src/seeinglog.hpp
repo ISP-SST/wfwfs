@@ -42,6 +42,8 @@ namespace wfwfs {
         SeeingLog( std::string n, int c );
         SeeingLog( SeeingLog&& );
         
+        void parsePropertyTree( const boost::property_tree::ptree&, const std::string& );
+        
         void setInterval( int i ) { interval = i; };
         void setName( std::string n ) { name = n; };
         void setDir( std::string s ) { dir = s; };

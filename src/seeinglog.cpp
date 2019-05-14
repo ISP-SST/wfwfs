@@ -54,6 +54,20 @@ SeeingLog::SeeingLog( SeeingLog&& rhs ) : dir( std::move(rhs.dir) ), name( std::
 }
 
 
+void SeeingLog::parsePropertyTree( const boost::property_tree::ptree& cfg_ptree, const std::string& base_dir ) {
+    
+    dir = cfg_ptree.get<string>( "outputdir", base_dir+"/logs/" );
+    name = cfg_ptree.get<string>( "name", "log" );
+    interval = cfg_ptree.get<int>( "interval", 1 );
+    min_lock = cfg_ptree.get<float>( "min_lock", 0.0 );
+    string cols = cfg_ptree.get<string>( "columns", "" );
+    if( !cols.empty() ) {
+        addColumns( cols );
+    }
+    
+}
+
+
 void SeeingLog::open( void ) {
     
     timestamp = bpx::second_clock::universal_time();
