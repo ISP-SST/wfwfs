@@ -50,6 +50,14 @@ Seeing::Seeing( void ) : dsID(1) {
 }
 
 
+void Seeing::find_nominal_gridpoints( PointI detector_size ) {
+    
+     for( auto& ds: dimm_sets ) {
+            ds.find_nominal_gridpoints( diam_px, detector_size );
+    }
+   
+}
+
 void Seeing::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     
     string output_base = cfg_ptree.get<string>( "outputdir", "/data/" );
@@ -362,6 +370,13 @@ void Seeing::draw_cell( Array<T>& img, PointI pos, uint16_t cell_size, bool mark
     
 }
 
+namespace {
+    
+    const PointF base1( 0, 1 );                   // Define base-vectors for the microlense array .
+    const PointF base2( 0.5*sqrt(3), 0.5 );       // We assume a subfield is located approximately at the center of the CCD, hexagonal symmetry,
+                                                  // and that the main row is aligned horizontally.
+
+}
 
 template <typename T>
 void Seeing::draw_cells( Array<T>& img ) const {
@@ -376,6 +391,18 @@ void Seeing::draw_cells( Array<T>& img ) const {
             draw_cell( img, cells[i].pos, sz, is_ref );
         }
     }
+
+    for( int i=-5; i<5; ++i ) {
+        for( int j=-5; j<5; ++j ) {
+            PointF pos_px = base1*i + base2*j;
+            pos_px *= diam_px;
+            if( sqrt(pos_px.norm()) < 1040 ) {
+                pos_px += PointI(1040,1040);
+                draw_cell( img, pos_px, 2, false );
+            }
+        }
+    }
+
 
 }
 template void Seeing::draw_cells( Array<uint8_t>& ) const;

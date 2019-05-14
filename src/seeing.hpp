@@ -44,6 +44,7 @@ namespace wfwfs {
 
         Seeing( void );
         
+        void find_nominal_gridpoints( PointI detector_size );
         void parsePropertyTree( boost::property_tree::ptree& );
         
         template <typename T>

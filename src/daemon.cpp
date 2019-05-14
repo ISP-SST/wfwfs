@@ -408,8 +408,8 @@ void Daemon::init(void) {
     ddPtr = dd.get();
     
     update_gain();
-    
     cell_mask.resize( fqueue.width, fqueue.height );
+    seeing.find_nominal_gridpoints( cam->get_size() );
     seeing.draw_cells( cell_mask );
     
     start_cam();

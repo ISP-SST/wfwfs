@@ -33,6 +33,13 @@ using namespace std;
 
 namespace bpx = boost::posix_time;
 
+namespace {
+    
+    const PointF base1( 0, 1 );                   // Define base-vectors for the microlense array .
+    const PointF base2( 0.5*sqrt(3), 0.5 );       // We assume a subfield is located approximately at the center of the CCD, hexagonal symmetry,
+                                                  // and that the main row is aligned horizontally.
+
+}
 
 
 DimmSet::DimmSet(size_t i) : id(i), ref_cell_size(64), cell_size(76), subcell_size(0),
@@ -87,6 +94,48 @@ DimmSet::DimmSet( DimmSet&& rhs ) : id(rhs.id),
                                     last_r0(rhs.last_r0),
                                     differential_motion(std::move(rhs.differential_motion)),
                                     frame_data(std::move(rhs.frame_data)) {
+
+
+}
+
+
+void DimmSet::find_nominal_gridpoints( float scale, PointI detector_size ) {
+    
+    detector_size /= 2;
+
+    // Find the nearest grid-point
+    for( auto& c: cells ) {
+        float min_dist = std::numeric_limits<float>::max();
+        for( int i=-5; i<5; ++i ) {
+            for( int j=-5; j<5; ++j ) {
+                PointF pos_px = base1*i + base2*j;
+                pos_px *= scale;
+                pos_px += detector_size;
+                pos_px -= c.pos;
+                float this_dist = sqrt( pos_px.norm() );
+                if( this_dist < min_dist ) {
+                    min_dist = this_dist;
+                    c.grid_pos = PointI(j,i);
+                }
+            }
+        }
+    }
+    
+    // pre-calculate the separations of all subfield combinations
+    size_t nCells = cells.size();
+    for( size_t i(0); i<nCells; ++i ) {
+        if ( i == ref_cell ) continue;
+        for( size_t j(i+1); j<nCells; ++j ) {
+            if ( j == ref_cell ) continue;
+            PointI pair(i,j);
+            pair_info& pi = differential_motion[ pair ];
+            pi.diff = cells[j].grid_pos - cells[i].grid_pos;
+            pi.diff = base1*pi.diff.x + base2*pi.diff.y;
+            pi.diff *= scale;
+            pi.separation = sqrt( pi.diff.norm() );                 // Save nominal separation
+            //pi.diff = cells[j].pos - cells[i].pos;                  // Store true difference vector
+        }
+    }
 
 
 }

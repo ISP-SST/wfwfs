@@ -58,6 +58,8 @@ namespace wfwfs {
         DimmSet( const DimmSet& );
         DimmSet( DimmSet&& );
         
+        void find_nominal_gridpoints( float scale, PointI detector_size );
+        
         void parsePropertyTree( boost::property_tree::ptree& cfg_ptree );
         
         size_t get_id( void ) const { return id; }
