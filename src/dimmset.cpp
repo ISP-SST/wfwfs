@@ -110,10 +110,11 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     }
     
     vector<uint32_t> cpv = cfg_ptree.get< vector<uint32_t> >( "cell_pos", vector<uint32_t>() );
+    int cell_id(0);
     if( !cpv.empty() ) {
         if( cpv.size()%2 == 0 ) {
             for( size_t i(0); i<cpv.size()-1; i += 2) {
-                cells.push_back( PointI( cpv[i], cpv[i+1] )+cell_offset );
+                cells.push_back( Cell(PointI( cpv[i], cpv[i+1] )+cell_offset, cell_id++) );
             }
         } else {
             cout << "Error: cell_pos must contain an even number of values (it's row/column pairs)" << endl;
@@ -124,7 +125,6 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     
     if( ref_cell > cells.size() ) ref_cell = 0;    // use first cell as reference if none was specified
 
-    avg_shifts.resize( cells.size(), 0.0 );
 
 }
 
@@ -146,15 +146,15 @@ Cell& DimmSet::get_ref_cell( void ) {
 bool DimmSet::adjust_cells( void ) {
     
     bool changed(false);
-    size_t ns = avg_shifts.size();
-    if( ns == cells.size() ) {
-        for( size_t i(0); i<ns; ++i ) {
-            avg_shifts[i].round();
-            PointI tmp = cells[i].pos;
-            tmp += avg_shifts[i];
-            if( tmp != cells[i].pos ) {
-                cells[i].pos = tmp;
-                avg_shifts[i] = 0;
+    for( auto& c: cells ) {
+        if( avg_shifts.count(c.ID) && (avg_shifts[c.ID].max_abs() > 0.5) ) {
+            PointI tmpPos = c.pos;
+            PointF tmpAF = avg_shifts[c.ID];
+            tmpAF.round();
+            tmpPos += tmpAF;
+            if( tmpPos != c.pos ) {
+                c.pos = tmpPos;
+                avg_shifts[c.ID] = 0;
                 changed = true;
             }
         }
@@ -169,6 +169,13 @@ void DimmSet::shift_cells( PointI s ) {
         c.pos += s;
     }
 
+}
+
+
+void DimmSet::check( void ) {
+
+    // TODO
+    
 }
 
 
@@ -198,37 +205,41 @@ void DimmSet::add_frame_data( bpx::ptime ts, dimm_data_t buf, size_t offset ) {
 }
 
 
-void DimmSet::measure_shifts( uint64_t* tmp ) {
+void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
 
-    size_t nCells = cells.size();
     size_t cs2 = cell_size*cell_size;
-    size_t refOffset = ref_cell*cs2;
+    size_t refOffset = ref_cell*cs2 + max_shift*(cell_size+1);
+    size_t N = 2*max_shift+1;
     
-    float framerate = 10;   // FIXME
-    float mix = powf(0.05, 1.0 / framerate / running_average);
-    
+    float mix = 1.0 - avg_interval/running_average;
+
     vector<frame_data_t> fd;
     {
         unique_lock<mutex> lock( mtx );
         std::swap( frame_data, fd );
     }
+
     for( auto& data: fd ) {
         const data_t* dataPtr = data.buf.get() + data.offset;
         const data_t* refPtr = dataPtr + refOffset;
-        vector<PointF> shifts( nCells, 0.0 );
-        for( size_t n(0); n<nCells; ++n ) {
-            if( n != ref_cell ) {
-                const data_t* cPtr = dataPtr+n*cs2;
-                bool ok = sads( refPtr, ref_cell_size, cPtr, cell_size, shifts[n], tmp );
-                if( !ok ) {
-                    // if the minumum was not well-determined (at the edge of search-area), set to NAN to exclude from average.
-                    shifts[n] = NAN;
-                } else {
-                    // update running averages
-                    avg_shifts[n] *= mix;
-                    avg_shifts[n] += shifts[n]*(1.0-mix);
-                }
+        map<int,PointF> shifts;
+        for( auto& c: cells ) {
+            int cellID = c.ID;
+            if( cellID == ref_cell ) continue;
+            const data_t* cellPtr = dataPtr+ cellID*cs2;
+            avg_shifts[cellID] *= mix;
+            PointF cell_shift(0,0);
+            bool min_found = sads( refPtr, ref_cell_size, cell_size, cellPtr, cell_size, cell_size, cell_shift, tmp );
+            if( cell_shift.max_abs() > max_shift ) {
+                min_found = false;
             }
+            if( min_found ) {
+                avg_shifts[cellID] += cell_shift*(1.0-mix);
+            } else {
+                // if the minumum was not well-determined (at the edge of search-area), set to NAN
+                cell_shift = NAN;
+            }
+            shifts[cellID] = cell_shift;
         }
         unique_lock<mutex> lock( mtx );
         cell_shifts[ data.timestamp ] = std::move(shifts);
@@ -237,110 +248,51 @@ void DimmSet::measure_shifts( uint64_t* tmp ) {
 }
 
 
-/*PointF DimmSet::get_avg_shift( size_t cell_id, bpx::ptime end ) const {
-    
-    bpx::ptime begin = end - bpx::time_duration( 0, 0, running_average, 0 );
-    PointF ret(0,0);
-    size_t count(0);
+void DimmSet::calculate_dim( boost::posix_time::ptime ts, const map<int,PointF>& shifts, const PointI& ij ) {
 
-    for( auto it: cell_shifts ) {
-        if( (it.first > begin) && (it.first < end) &&
-            (cell_id < it.second.size()) && it.second[cell_id].isfinite()) {
-            ret += it.second[cell_id];
-            count++;
+    pair_info& pi = differential_motion[ ij ];
+    // The DIMM method is only valid for distances larger than approximately 2x the subaperture diameter.
+    if( pi.separation < 2*Seeing::diam_px ) return;
+    if( true && (pi.diff.min_abs() > 0.1*pi.diff.max_abs()) ) {    // NOTE: this is just to mimic the AO code, i.e. only allow the "almost" horizontal/vertical pairs
+        return;
+    }
+    const PointD avg_ji = avg_shifts[ij.x] - avg_shifts[ij.y];
+    try {
+        PointD differential_shift = avg_ji + shifts.at(ij.y) - shifts.at(ij.x);
+        auto& data = pi.data[ ts ];
+        if( differential_shift.isfinite() && (differential_shift.min_abs() > 0.0) ) {
+            differential_shift = differential_shift.projectOnto( pi.diff, true );          // Convert to longitudinal/transverse components w.r.t. the pair-separaion (and preserve norm),
+                                                                                           //   the longitudinal part is stored in "x", transverse in "y"
+
+            data.squared_shift = differential_shift*differential_shift;
+            data.ok = true;
         }
-    }
-    if( count ) {
-        ret /= count;
-    }
-
-    return ret;
+    } catch ( ... ) { }
     
 }
 
 
-vector<PointF> DimmSet::get_avg_shifts( bpx::ptime end ) const {
-    
-    bpx::ptime begin = end - bpx::time_duration( 0, 0, running_average, 0 );
-    size_t nCells = cells.size();
-    vector<PointF> ret( nCells, {0.0, 0.0} );
-    size_t count(0);
-
-    for( auto it: cell_shifts ) {
-        if( (it.first > begin) && (it.first < end) && (nCells == it.second.size()) ) {
-            transform( it.second.begin(), it.second.end(), ret.begin(), ret.begin(),
-                [&count]( const PointF& a, const PointF& b ) {
-                    if( a.isfinite() ) {
-                        count++;
-                        return a+b;
-                    }
-                    return b;
-                }
-            );
-        }
-    }
-    if( count ) {
-        for( auto& i: ret ) i /= count;
-    }
-
-    return ret;
-    
-}*/
-
-
-void DimmSet::calculate_dimms( void ) {
+void DimmSet::calculate_dims( void ) {
 
     lock_guard<mutex> lock( mtx );
     size_t nCells = cells.size();
 
     for( auto& it: cell_shifts ) {
         if( last_dimm.is_not_a_date_time() || it.first > last_dimm ) {
-
             last_dimm = it.first;
-            vector<PointF> shifts = get_avg_shifts();
-            if( shifts.size() < cells.size() ) shifts.resize( cells.size(), 0.0 );
-
+            const map<int,PointF>& shifts = it.second;
             for( size_t i(0); i<nCells; ++i ) {
-                if ( i == ref_cell ) continue;
+                if( i == ref_cell ) continue;
                 for( size_t j(i+1); j<nCells; ++j ) {
-                    if ( j == ref_cell ) continue;
-                    PointD diff = (cells[j].pos+shifts[j]) - (cells[i].pos+shifts[i]);
-                    if( diff.min_abs() > 0.1*diff.max_abs() ) {    // FIXME: this is just to mimic the AO code, i.e. only allow the "almost" horizontal/vertical pairs
-                        //continue;
-                    }
-                    PointI pair(i,j);
-                    pair_info& pi = differential_motion[ pair ];
-                    auto& data = pi.data[ it.first ];
-                    
-                    data.separation = sqrt( diff.norm() );
-                    PointD differential_shift = (it.second[i] - shifts[i])
-                                              - (it.second[j] - shifts[j]);
-                    if( !differential_shift.isfinite() ) {
-                        data.ok = false;
-                        continue;
-                    }
-                    if( true ) {    // 
-                        differential_shift = differential_shift.projectOnto( diff, true );          // convert to local longitudinal/transverse components (and preserve norm)
-                                                                                                    // The longitudinal part is stored in "x", transverse in "y"
-                    } else {                                                
-                        if( diff.x < diff.y ) {                                                     // Use the old way (hardcoded longitudinal/transverse directions)
-                            std::swap( differential_shift.x, differential_shift.y );
-                        }
-                    }
-                    PointD differential_shift_change = differential_shift - pi.previous_shift;      // Estimate noise by summing change in motion squared
-                    data.shift = differential_shift;
-                    data.squared_shift = differential_shift*differential_shift;
-                    data.variance = differential_shift*differential_shift;
-                    data.rms = differential_shift_change*differential_shift_change;
- 
-
-                    pi.previous_shift = differential_shift;                                         // ... and save for next call.
-                    
+                    if( j == ref_cell ) continue;
+                    PointI cell_pair(i,j);
+                    calculate_dim( last_dimm, shifts, cell_pair );
                 }
             }
-
         }
     }
+    
+    cell_shifts.clear();
 
 }
 
@@ -361,57 +313,72 @@ void DimmSet::calculate_r0( void ) {
 }
 
 
-PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur ) {
+PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur, float ml ) {
 
     if( end.is_not_a_date_time() ) {
-        end = get_last_frametime();
+        end = bpx::microsec_clock::universal_time();
     }
     bpx::ptime begin = end - bpx::time_duration( 0, 0, dur, 0 );
-
+    
 #ifdef PRINT_DEBUG
-    cout << "calculate_r0:    " << __LINE__ << "  Time: " << to_simple_string(begin) << "  -> " << to_simple_string(end) << endl;
+    cout << "calculate_r0:    " << __LINE__ << "  dur = " << dur << "\nTime: " << to_simple_string(begin) << "  -> " << to_simple_string(end) << endl;
     vector<PointI> pair_ids;
     vector<size_t> pair_n;
+    vector<size_t> pair_good;
+    vector<PointF> pair_var;
     vector<PointF> pair_r0;
-    vector<float> pair_dist;
+    vector<float> pair_sep;
 #endif
+    
+    if( ml < 0.0 ) {    // min_lock not provided in call, use the local value.
+        ml = min_lock;
+    }
     
     PointD r0_sum(0,0);
     size_t nPairs(0);
-    size_t nTotalData(0);
     
+    const PointD variance_cutoff = (2*max_shift)*(2*max_shift)/12.0;       // Take a uniform distribution over the search-space as limiting value.
+
     for( auto& dm: differential_motion ) {
         auto& pi = dm.second;
-        PointD variance(0,0);
-        float separation_sum(0);
-        size_t nPairData(0);
-        for( auto& d: pi.data ) {
-            if( d.second.ok && (d.first > begin) && (d.first <= end) ) {
-                variance += d.second.squared_shift;
-                separation_sum += d.second.separation;
-                nPairData++;
-            }
-        }
-        if( nPairData < 10 ) continue;
-        
-        separation_sum /= nPairData;
-        variance /= nPairData;
-        
         // The DIMM method is only valid for distances larger than 2x the subaperture diameter.
-        if( separation_sum < 2*Seeing::diam_px ) continue;
-
-        PointD r0 = Seeing::apply_dimm_equations( variance, separation_sum );
+        if( pi.separation < 2*Seeing::diam_px ) continue;
         
+        PointD variance(0,0);
+        size_t nTotalData(0);
+        size_t nGoodData(0);
+        auto it = pi.data.rbegin();
+        while( (it != pi.data.rend()) && (it->first > end) ) it++;
+        while( (it != pi.data.rend()) && (it->first > begin) ) {
+            nTotalData++;
+            if( it->second.ok ) {
+                variance += it->second.squared_shift;
+                nGoodData++;
+            }
+            it++;
+        }
+
+        if( !nTotalData || !nGoodData || (variance.min() <= 0.0) ) continue;        // No data available.
+        if( static_cast<double>(nGoodData)/nTotalData < ml ) continue;              // Less data than required.
+
+        variance /= nGoodData;
+
+        variance = variance.min( variance_cutoff );                           // Restrict variance to < variance_cutoff
+        
+        PointD r0 = Seeing::apply_dimm_equations( variance, pi.separation );
+
 #ifdef PRINT_DEBUG
         pair_ids.push_back( dm.first );
-        pair_n.push_back(nPairData);
+        pair_n.push_back(nTotalData);
+        pair_good.push_back(nGoodData);
         pair_r0.push_back(r0);
-        pair_dist.push_back(separation_sum);
+        pair_var.push_back(variance);
+        pair_sep.push_back(pi.separation);
 #endif
+        if( !r0.isfinite() ) continue;
 
         r0_sum += r0;
         nPairs++;
-        nTotalData += nPairData;
         
     }
 
@@ -421,9 +388,10 @@ PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur ) {
     
 #ifdef PRINT_DEBUG
     cout << printArray( pair_ids, "  pairs", 5 ) << endl;
-    cout << printArray( pair_n, "  count", 5 ) << endl;
-    cout << printArray( pair_dist, "   dist", 5 ) << endl;
-    cout << printArray( pair_r0, "     r0", 5 ) << endl;
+    cout << printArray( pair_n, "  count", 5 ) << printArray( pair_good, "  good", 5 ) << endl;
+    cout << printArray( pair_var, "    var", 5 ) << endl;
+    cout << printArray( pair_sep, "    sep", 5 ) << endl;
+    cout << printArray( pair_r0,  "     r0", 5 ) << endl;
     cout << "     R0=" << r0_sum << " => " << ((r0_sum.x+r0_sum.y)/2) << endl;
 #endif
     
@@ -432,11 +400,40 @@ PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur ) {
 }
 
 
-boost::posix_time::ptime DimmSet::get_last_frametime( void ) {
+PointD DimmSet::pair_info::getShift(void) const {
     
-    if( cell_shifts.empty() ) {
-        return bpx::not_a_date_time;
+    PointD ret;
+    
+    if( !data.empty() ) {
+        ret = data.rbegin()->second.squared_shift;
     }
-    return cell_shifts.rbegin()->first;
+    
+    return ret;
     
 }
+
+
+PointD DimmSet::pair_info::getVariance( bpx::ptime begin, bpx::ptime end ) const {
+
+    PointD variance(0,0);
+    size_t nData(0);
+
+    auto it = data.rbegin();
+    while( (it != data.rend()) && (it->first > end) ) it++;
+    while( (it != data.rend()) && (it->first > begin) ) {
+        if( it->second.ok ) {
+            variance += it->second.squared_shift;
+            nData++;
+        }
+        it++;
+    }
+
+    if( nData ) {
+        variance /= nData;
+    }
+
+    return variance;
+    
+}
+
+
