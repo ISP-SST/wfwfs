@@ -54,10 +54,12 @@ namespace wfwfs {
         
         void precalculate( void );
         static PointD apply_dimm_equations( PointD var, float separation );
-        static PointD simple_dimm_equations( PointD var, float separation );
         
         void start_logs( void );
         void stop_logs( void );
+        void start( void );
+        void stop( void );
+        void maintenance( void );
         
         void set_image_scale( float s ) { arcsecs_per_pixel = s; precalculate(); }
         void set_diam( float d ) { diam = d; precalculate(); }
@@ -68,7 +70,9 @@ namespace wfwfs {
         std::string adjust_cells( size_t id=0 );
         std::string shift_cells( PointI, size_t id=0 );
         std::string get_cells( size_t id=0 ) const;
-        std::string get_shifts( size_t id=0 ) const;
+        std::string get_shifts( void ) const;
+        std::string get_ashifts( size_t id=0 ) const;
+        std::string get_vars( int duration=0 ) const;
         
         template <typename T>
         void draw_cell( Array<T>& img, PointI c, uint16_t cell_size, bool mark=false ) const;

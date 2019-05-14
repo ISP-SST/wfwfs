@@ -221,20 +221,9 @@ PointD Seeing::apply_dimm_equations( PointD var, float separation ) {
 }
 
 
-// input is in pixels.
-PointD Seeing::simple_dimm_equations( PointD var, float separation ) {
-
-    PointD ret;
     
-    var *= radians_per_pixel*radians_per_pixel;     // convert variance from pixel-units to radians
-    separation *= diam/diam_px;                     // convert sub-aperture separation from pixels to meters
     
-    // longitudinal part
-    ret.x = pow(2.0 * sqr(lambda) * (0.179 * pow(diam,-1./3) - 0.0968 * pow(separation,-1./3)) / var.x, 3./5);
-    // transverse part
-    ret.y = pow(2.0 * sqr(lambda) * (0.179 * pow(diam,-1./3) - 0.1450 * pow(separation,-1./3)) / var.y, 3./5);
     
-    return ret;
     
 }
 
@@ -242,7 +231,7 @@ PointD Seeing::simple_dimm_equations( PointD var, float separation ) {
 void Seeing::start_logs( void ) {
     
     for( auto& l: logs ) {
-        l.run( dimm_sets );
+        l.start( dimm_sets );
     }
     
 }
@@ -257,6 +246,31 @@ void Seeing::stop_logs( void ) {
 }
 
 
+void Seeing::start( void ) {
+    
+    start_logs();
+    
+}
+
+
+void Seeing::stop( void ) {
+    
+    stop_logs();
+    
+}
+
+
+void Seeing::maintenance( void ) {
+    
+    for( auto& ds: dimm_sets ) {
+        ds.check();
+    }
+    
+    for( auto& l: logs ) {
+        l.check();
+    }
+    
+}
 
 
 void Seeing::set_ravg( float r, size_t id  ) {
@@ -318,31 +332,76 @@ string Seeing::shift_cells( PointI s, size_t id ) {
 
 
 string Seeing::get_cells( size_t id ) const {
+    
     string ret;
-    bool first(true);
+    
     for( auto& ds: dimm_sets ) {
         if( !id || (id == ds.get_id()) ) {
-            if( !first ) ret += "\n";
+            ret += "\n";
             ret += printArray( ds.get_cells(), ds.get_name() );
-            first = false;
         }
     }
+    
     return ret;
 }
 
 
-string Seeing::get_shifts( size_t id ) const {
+string Seeing::get_shifts( void ) const {
+    
     string ret;
-    bool first(true);
+    for( auto& ds: dimm_sets ) {
+        ret += "\n";
+        ret += ds.get_name() + "=[";
+        for( auto& dm: ds.get_differential_motion() ) {
+            ret += (string)(dm.first) + ":" + (string)dm.second.getShift( ) + ",";
+        }
+        ret += "]";
+    }
+    
+    return ret;
+    
+}
+
+
+string Seeing::get_ashifts( size_t id ) const {
+    
+    string ret;
     for( auto& ds: dimm_sets ) {
         if( !id || (id == ds.get_id()) ) {
-            if( !first ) ret += "\n";
-            ret += printArray( ds.get_avg_shifts(), ds.get_name() );
-            first = false;
+            ret += "\n";
+            ret += ds.get_name() + "=[";
+            for( auto& as: ds.get_avg_shifts() ) {
+                ret += to_string(as.first) + ":" + (string)as.second + ",";
+            }
+            ret += "]";
         }
     }
+    
+    return ret;
+    
+}
+
+
+string Seeing::get_vars( int duration ) const {
+    
+    string ret;
+    duration = std::min<int>( duration, 1 );
+    
+    bpx::ptime end = bpx::microsec_clock::universal_time();
+    bpx::ptime begin = end - bpx::time_duration( 0, 0, duration, 0 );
+    
+    for( auto& ds: dimm_sets ) {
+        ret += "\n";
+        ret += ds.get_name() + "=[";
+        for( auto& dm: ds.get_differential_motion() ) {
+            ret += (string)(dm.first) + ":" + (string)dm.second.getVariance( begin, end ) + ",";
+        }
+        ret += "]";
+    }
+    
     return ret;
 }
+
 
 
 template <typename T>
@@ -421,7 +480,7 @@ size_t Seeing::get_data_size( void ) const {
 
 DimmSet::dimm_data_t Seeing::get_buffer( void ) {
 
-     for( auto& b: buffers ) {
+    for( auto& b: buffers ) {
         if( b.use_count() == 1 ) {
             return b;
         }

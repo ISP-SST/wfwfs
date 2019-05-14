@@ -1024,6 +1024,32 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
                 setThreads( nT );
                 usleep( 100000 );
                 replyStr = boost::str( boost::format("OK threads %d") % nThreads );
+            } else if( what == "image_scale" ) {
+                float is = pop<float>( line );
+                seeing.set_image_scale( is );
+                replyStr = boost::str( boost::format("OK set image_scale %f") % is );
+            } else if( what == "min_lock" ) {
+                float ml = pop<float>( line );
+                boost::trim( line );
+                seeing.set_min_lock( ml, line );
+                replyStr = boost::str( boost::format("OK set min_lock %f \"%s\"") % ml % line);
+            } else if( what == "diam" ) {
+                float d = pop<float>( line );
+                seeing.set_diam( d );
+                replyStr = boost::str( boost::format("OK set diam %f") % d );
+            }  else if( what == "lambda" ) {
+                float l = pop<float>( line );
+                seeing.set_lambda( l );
+                replyStr = boost::str( boost::format("OK set lambda %f") % l );
+            } else if( what == "ravg" ) {
+                float r = pop<float>( line );
+                int id = pop<int>( line );
+                seeing.set_ravg( r, id );
+                if( id ) {
+                    replyStr = boost::str( boost::format("OK set ravg %f at %d") % r % id );
+                } else {
+                    replyStr = boost::str( boost::format("OK set ravg %f") % r );
+                }
             } else {  // unrecognized
                 if( !what.empty() ) replyStr = "set Huh?";
             }
@@ -1080,8 +1106,13 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
                 size_t id = pop<int>( line );
                 replyStr = "OK cells " + seeing.get_cells( id );
             } else if(what == "shifts") {
+                replyStr = "OK shifts " + seeing.get_shifts();
+            } else if(what == "ashifts") {
                 size_t id = pop<int>( line );
-                replyStr = "OK shifts " + seeing.get_shifts( id );
+                replyStr = "OK ashifts " + seeing.get_ashifts( id );
+            } else if(what == "vars") {
+                int duration = pop<int>( line );
+                replyStr = "OK vars " + seeing.get_vars( duration );
             } else if(what == "meta") {
                 replyStr = boost::str( boost::format("OK meta %d") % meta_cards.size() );
                 int cnt(0);
