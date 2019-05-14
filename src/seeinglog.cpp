@@ -93,6 +93,16 @@ void SeeingLog::open( void ) {
     if( !ofstream::tellp() ) {      // print header if we opened a new file
         printHeader();
     }
+    
+    bfs::path linkPath( dir );
+    linkPath /= name + ".log";
+
+    if( bfs::is_symlink(linkPath) ) {
+        bfs::remove(linkPath);
+    }
+    
+    bfs::create_symlink( bfs::relative(filePath, dirPath), linkPath );
+
 
 }
 
