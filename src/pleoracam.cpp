@@ -413,15 +413,17 @@ void PleoraCam::set_interval( double value ) {
     if( lDevice && lDeviceParams ) {
         lock_guard<mutex> h(mtx);
         if( isfinite(value) && value > 0 ) {
-            if( state.interval == 0.0 ) lDeviceParams->SetBooleanValue( "AcquisitionFrameRateEnable", true );
-            double maxFPS;
-            lDeviceParams->GetFloatValue( "AcquisitionFrameRateMax", maxFPS );
-            double fps = std::min( 1.0 / value, maxFPS );
-            if( maybeLog( lDeviceParams->SetFloatValue( "AcquisitionFrameRate", fps ), "set_interval" ) ) {
-                state.interval = 1.0 / fps;
+            if( maybeLog( lDeviceParams->SetBooleanValue( "AcquisitionFrameRateEnable", true ), "FrameRateEnable" ) ) {
+                double maxFPS;
+                lDeviceParams->GetFloatValue( "AcquisitionFrameRateMax", maxFPS );
+                double fps = std::min( 1.0 / value, maxFPS );
+                string msg = "set_fps: " + to_string(fps) + "/" + to_string(maxFPS);
+                if( maybeLog( lDeviceParams->SetFloatValue( "AcquisitionFrameRate", fps ), msg ) ) {
+                    state.interval = 1.0 / fps;
+                }
             }
         } else {
-            lDeviceParams->SetBooleanValue( "AcquisitionFrameRateEnable", false );
+            maybeLog( lDeviceParams->SetBooleanValue( "AcquisitionFrameRateEnable", false ), "FrameRateDisable" );
             state.interval = 0.0;
         }
     }
