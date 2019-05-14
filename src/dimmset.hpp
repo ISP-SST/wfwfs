@@ -62,6 +62,9 @@ namespace wfwfs {
         uint8_t get_max_shift( void ) const { return max_shift; }
         size_t get_data_size( void ) const;
         
+        void set_ravg( float );
+        void set_min_lock( float ml ){ min_lock=ml; };
+        
         void add_frame_data( boost::posix_time::ptime, dimm_data_t, size_t );
         
         void measure_shifts( uint64_t* );
@@ -86,8 +89,8 @@ namespace wfwfs {
         
         uint16_t cadence;                           // (s) How often r0 should be calculated
         uint16_t duration;                          // (s) How long timespan to accumulate statistics in the r0 calculation
-        uint16_t running_average;                   // (s) Timescale for the moving average of the (slowly varying) image motion for the cells
-        
+        float running_average;                      // (s) Timescale for the moving average of the (slowly varying) image motion for the cells
+        float min_lock;                             // (fraction) Minimum lock-ratio for including a pair in r0-calculation
         boost::posix_time::ptime last_dimm;
         boost::posix_time::ptime last_r0;           // When the latest r0 calculation was done
 

@@ -34,9 +34,10 @@ using namespace std;
 namespace bpx = boost::posix_time;
 
 
-DimmSet::DimmSet(size_t i) : id(i), ref_cell_size(64), cell_size(76),
+
+DimmSet::DimmSet(size_t i) : id(i), ref_cell_size(64), cell_size(76), subcell_size(0),
                              max_shift(6), ref_cell(-1), cadence(5), duration(5),
-                             running_average(20),
+                             running_average(20.0), min_lock(0.0),
                              last_dimm(bpx::not_a_date_time),
                              last_r0(bpx::not_a_date_time) {
 
@@ -56,6 +57,7 @@ DimmSet::DimmSet( const DimmSet& rhs ) : id(rhs.id),
                                     cadence(rhs.cadence),
                                     duration(rhs.duration),
                                     running_average(rhs.running_average),
+                                    min_lock(rhs.min_lock),
                                     last_dimm(rhs.last_dimm),
                                     last_r0(rhs.last_r0),
                                     differential_motion(rhs.differential_motion),
@@ -76,6 +78,7 @@ DimmSet::DimmSet( DimmSet&& rhs ) : id(rhs.id),
                                     cadence(rhs.cadence),
                                     duration(rhs.duration),
                                     running_average(rhs.running_average),
+                                    min_lock(rhs.min_lock),
                                     last_dimm(rhs.last_dimm),
                                     last_r0(rhs.last_r0),
                                     differential_motion(std::move(rhs.differential_motion)),
@@ -95,7 +98,8 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     
     cadence = cfg_ptree.get<uint16_t>( "cadence", cadence );
     duration = cfg_ptree.get<uint16_t>( "duration", duration );
-    running_average = cfg_ptree.get<uint16_t>( "running_average", running_average );
+    running_average = cfg_ptree.get<float>( "running_average", running_average );
+    min_lock = cfg_ptree.get<float>( "min_lock", 0.0 );
 
     ref_cell = cfg_ptree.get<size_t>( "ref_cell", ref_cell );
     
@@ -171,6 +175,13 @@ void DimmSet::shift_cells( PointI s ) {
 size_t DimmSet::get_data_size( void ) const {
     
     return cell_size*cell_size*cells.size();
+    
+}
+
+
+void DimmSet::set_ravg( float r ) {
+    
+    running_average = r;
     
 }
 

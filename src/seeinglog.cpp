@@ -35,13 +35,19 @@ namespace bpx = boost::posix_time;
 namespace bfs = boost::filesystem;
 
 
-SeeingLog::SeeingLog( std::string n, int i ) : ofstream(), name(n), interval(i), running(false),
+SeeingLog::SeeingLog( void ) : ofstream(), name(), min_lock(-1.0), interval(1), running(false),
+                                                           timestamp(bpx::not_a_date_time) {
+                                                               
+}
+
+
+SeeingLog::SeeingLog( std::string n, int i ) : ofstream(), name(n), min_lock(0.0), interval(i), running(false),
                                                            timestamp(bpx::not_a_date_time) {
     
 }
 
 
-SeeingLog::SeeingLog( SeeingLog&& rhs ) : dir( std::move(rhs.dir) ), name( std::move(rhs.name) ),
+SeeingLog::SeeingLog( SeeingLog&& rhs ) : dir( std::move(rhs.dir) ), name( std::move(rhs.name) ), min_lock(std::move(rhs.min_lock)), 
                                           interval( std::move(rhs.interval) ), columns( std::move(rhs.columns) ),
                                           running(false), timestamp(std::move(rhs.timestamp)), mtx() {
             

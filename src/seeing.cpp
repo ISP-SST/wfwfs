@@ -249,6 +249,38 @@ void Seeing::stop_logs( void ) {
 }
 
 
+
+
+void Seeing::set_ravg( float r, size_t id  ) {
+    
+    for( auto& ds: dimm_sets ) {
+        if( !id || (id == ds.get_id()) ) {
+            ds.set_ravg( r );
+        }
+    }
+    
+}
+
+
+void Seeing::set_min_lock( float ml, std::string tag ) {
+    
+    if( ml < 0.0 || ml > 1.0 ) return;
+    
+    for( auto& ds: dimm_sets ) {
+        if( tag.empty() || (tag == ds.get_name()) ) {
+           ds.set_min_lock( ml );
+        }
+    }
+    
+    for( auto& l: logs ) {
+        if( tag.empty() || (tag == l.get_name()) ) {
+           l.set_min_lock( ml );
+        }
+    }
+    
+}
+
+
 string Seeing::adjust_cells( size_t id ) {
 
     bool changed(false);

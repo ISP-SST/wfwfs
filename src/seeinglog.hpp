@@ -38,6 +38,7 @@ namespace wfwfs {
     
     class SeeingLog : public std::ofstream {
     public:
+        SeeingLog( void );
         SeeingLog( std::string n, int c );
         SeeingLog( SeeingLog&& );
         
@@ -63,6 +64,7 @@ namespace wfwfs {
     private:
         std::string dir;
         std::string name;
+        float min_lock;                             // (fraction) Minimum lock-ratio for printing r0 to file.
         int interval;
         std::vector< std::pair<std::string,int> > columns;
         bool running;

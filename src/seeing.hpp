@@ -61,6 +61,8 @@ namespace wfwfs {
         void set_image_scale( float s ) { arcsecs_per_pixel = s; precalculate(); }
         void set_diam( float d ) { diam = d; precalculate(); }
         void set_lambda( float l ) { lambda = l; precalculate(); }
+        void set_ravg( float r, size_t id=0 );
+        void set_min_lock( float ml, std::string tag="" );
         
         std::string adjust_cells( size_t id=0 );
         std::string shift_cells( PointI, size_t id=0 );
