@@ -31,7 +31,12 @@ namespace wfwfs {
 
     template <typename T>
     void subpixel( const T* data, size_t stride, int x, int y, double& x_delta, double& y_delta ) {
-
+        
+        if( (y-1)*stride+x < 1 ) {          // first element will be at negative offset relative to data
+            x_delta = y_delta = NAN;
+            return;
+        }
+        
         // Subpixel interpolation using a quadratic fit
         const T* row2 = data + y*stride + x - 1;
         const T* row3 = row2 + stride;
@@ -58,12 +63,19 @@ namespace wfwfs {
         y_delta = (a3 * a4 - a2 * a6) * a7;
 
     }
-    
+
+    template <typename T>
+    bool sads( const T* __restrict__ ref_img, size_t ref_size, size_t ref_stride,
+               const T* __restrict__ img, size_t img_size, size_t img_stride,
+               PointF& shift, uint64_t* __restrict__ tmp );
     
     template <typename T>
-    bool sads( const T* __restrict__ c1, size_t c1_size,
-               const T* __restrict__ c2, size_t c2_size,
-               PointF& shift, uint64_t* __restrict__ result );
+    bool sads( const T* __restrict__ ref_img, size_t ref_size,
+               const T* __restrict__ img, size_t img_size,
+               PointF& shift, uint64_t* __restrict__ tmp ) {
+        return sads( ref_img, ref_size, ref_size, img, img_size, img_size, shift, tmp );
+    }
+
 
 }  // namespace wfwfs
 

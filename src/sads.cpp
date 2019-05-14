@@ -29,57 +29,72 @@ using namespace std;
 
 
 template <typename T>
-bool wfwfs::sads( const T* __restrict__ c1, size_t c1_size,
-                  const T* __restrict__ c2, size_t c2_size,
-                  PointF& shift, uint64_t* __restrict__ result ) {
+bool wfwfs::sads( const T* __restrict__ ref_img, size_t ref_size, size_t ref_stride,
+                  const T* __restrict__ img, size_t img_size, size_t img_stride,
+                  PointF& shift, uint64_t* __restrict__ tmp ) {
+
     
     bool ret(false);
-    int ss = (c2_size-c1_size)+1;
-    int max_shift = (c2_size-c1_size)/2;
-    memset( result, 0, ss*ss*sizeof(uint64_t) );
+    bool swapped(false);
+    if( ref_size > img_size ) {     // make sure the reference is the smallest image.
+        swapped = true;
+        std::swap( ref_img, img );
+        std::swap( ref_size, img_size );
+        std::swap( ref_stride, img_stride );
+    }
     
-    shift = -1;
+    int n_positions = (img_size-ref_size)+1;
+    float midpoint = (img_size-ref_size)/2;
+    memset( tmp, 0, n_positions*n_positions*sizeof(uint64_t) );
+    
+    shift = -1.0;
     uint64_t min = numeric_limits<uint64_t>::max();
 
-    for( int ys(0); ys<ss; ++ys ) {
-        for( int xs(0); xs<ss; ++xs ) {
-            int so = ys*ss+xs;
+    for( int ys(0); ys<n_positions; ++ys ) {
+        for( int xs(0); xs<n_positions; ++xs ) {
+            int so = ys*n_positions+xs;
             uint64_t res = 0;
-            const T* __restrict__ dPtr = c2+ys*c2_size+xs;
-            const T* __restrict__ rPtr = c1+max_shift*(c2_size+1);
-            for( size_t y(0); y<c1_size; ++y ) {
-                for( size_t x(0); x<c1_size; ++x ) {
-                    int a = (int)dPtr[x] - (int)rPtr[x];
-                    if( a < 0 ) res -= a;
-                    else res += a;
+            const T* __restrict__ dPtr = img+ys*img_stride+xs;
+            const T* __restrict__ rPtr = ref_img;
+            for( size_t y(0); y<ref_size; ++y ) {
+                for( size_t x(0); x<ref_size; ++x ) {           // Sum absolute differences for current row
+                    res += std::abs( (int64_t)dPtr[x] - (int64_t)rPtr[x] );
                 }
-                rPtr += c2_size;
-                dPtr += c2_size;
+                rPtr += ref_stride;                             // Move pointers to next row.
+                dPtr += img_stride;
             }
-            if( res < min ) {
+            if( res < min ) {                                   // save best position
                 shift.x = xs;
                 shift.y = ys;
                 min = res;
             }
-            result[so] = res*res;
+            tmp[so] = res*res;
         }
     }
 
-    if( (shift.min() > 0) && (shift.max()+1 < ss) ) {
+
+    if( (shift.min() > 0) && (shift.max()+1 < n_positions) ) {
         PointD delta;
-        subpixel( result, ss, shift.x, shift.y, delta.x, delta.y );
-        if( delta.max_abs() < 1 ) {  // only accept corrections < 1 px
-            shift += delta;
+        subpixel( tmp, n_positions, shift.x, shift.y, delta.x, delta.y );
+        if( delta.max_abs() < 1.5 ) {   // only accept corrections < 1.5
+            shift -= delta;
         }
         ret = true;
     }
     
-    shift -= max_shift;
-    
+    shift -= midpoint;
+
+    if( swapped ) {
+        std::swap( shift.x, shift.y );
+    }
     return ret;
 
 
 }
-template bool wfwfs::sads( const uint16_t* __restrict__ c1, size_t c1_size,
-                           const uint16_t* __restrict__ c2, size_t c2_size,
-                           PointF& shift, uint64_t* __restrict__ result );
+template bool wfwfs::sads( const uint16_t* __restrict__, size_t, size_t,
+                           const uint16_t* __restrict__, size_t, size_t,
+                           PointF&, uint64_t* __restrict__ );
+
+
+
+

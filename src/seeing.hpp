@@ -79,7 +79,7 @@ namespace wfwfs {
 
         // Global properties of the telescope + camera
         static float pixelsize;             // sst/WFWFS = 8 \mu
-        static float diam;                  // Sub-aperture diameter    (m)                 sst = 0.135     (at CCD: 2.33 mm)
+        static float diam;                  // Sub-aperture diameter    (m)                 sst = 0.135 (theoretical), at CCD: 2.33 mm  (measured on 2019-04-23: 0.13245)
         static float diam_px;               // Sub-aperture diameter    (pixels)            sst = 291.25
         static float arcsecs_per_pixel;     // Image-scale              (arcsec/pixel)      sst = 0.21
         static float meters_per_pixel;      // Image scale              (m/pixel)           sst = 0.000463519
@@ -92,9 +92,7 @@ namespace wfwfs {
         std::vector<DimmSet> dimm_sets;
         std::vector<DimmSet::dimm_data_t> buffers;
         size_t dsID;
-        struct SeeingData {
-        };
-        std::vector<SeeingData> data;
+
         std::vector<SeeingLog> logs;
         
         std::mutex mtx;

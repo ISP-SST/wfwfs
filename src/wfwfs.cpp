@@ -85,7 +85,7 @@ int main( int argc, char *argv[] ) {
         vm.notify();
 #endif
     
-        bool detach = (vm.count( "log-stdout" ) == 0) && (vm.count( "foreground" ) == 0);
+        bool detach = (vm.count( "foreground" ) == 0);
         int options = detach ? 0 : LOG_CONS | LOG_PERROR;
         options |= LOG_PID | LOG_NDELAY;
         openlog( "WFWFS", options, LOG_DAEMON );
@@ -96,19 +96,20 @@ int main( int argc, char *argv[] ) {
         tmp_vm = vm;    // make a local copy so it can be restored to cmd-line options on reset
         while( true ) {
             try {
+                syslog( LOG_NOTICE, "Starting WFWFS daemon." );
                 Daemon daemon( tmp_vm );
                 return daemon.run();
             }
-            catch( Application::KillException ) {
+            catch( const Application::KillException& ) {
                 break;
             }
-            catch( Application::ResetException ) {
-                syslog( LOG_NOTICE, "Resetting WFWFS daemon" );
+            catch( const Application::ResetException& ) {
+                syslog( LOG_NOTICE, "Resetting WFWFS daemon." );
                 tmp_vm = vm;
                 continue;
             }
-            catch( Application::RestartException ) {
-                syslog( LOG_NOTICE, "Restarting WFWFS daemon" );
+            catch( const Application::RestartException& ) {
+                syslog( LOG_NOTICE, "Restarting WFWFS daemon." );
                 continue;
             }
         }

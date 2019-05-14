@@ -166,6 +166,9 @@ void Seeing::process( boost::asio::io_service& ios ) {
  *   r0_l = (2.0*(lambda^2)*(0.179*D^(-1/3)-0.0968*d^(-1/3))/var_l)^(3/5)
  *   r0_t = (2.0*(lambda^2)*(0.179*D^(-1/3)-0.1450*d^(-1/3))/var_t)^(3/5)
  * 
+ * where the wavelength and distances are in meters, and the variance in angular
+ * units.
+ * 
  * By defining
  *   A =  2.0*(lambda^2)*(0.179*D^(-1/3))
  * We get
@@ -178,8 +181,8 @@ void Seeing::process( boost::asio::io_service& ios ) {
  * This B remains fixed, and can thus be pre-calculated and only the varying
  * part needs to be computed for each evaluation.
  * For convenience, we also include the factor for converting the variance
- * from units of pixels to meters:
- *   K = B / meters_per_pixel^(6/5) = ((lambda/meters_per_pixel)^2*(0.358*D^(-1/3)))(3/5)
+ * from pixels to angular units:
+ *   K = B / radians_per_pixel^(6/5) = ((lambda/radians_per_pixel)^2*(0.358*D^(-1/3)))(3/5)
  */
 
 
@@ -187,9 +190,7 @@ void Seeing::precalculate( void ) {
     
     radians_per_pixel = arcsecs_per_pixel / 3600 * M_PI / 180;
     meters_per_pixel = diam / diam_px;
-    
     dimm_K = pow( 0.358*sqr(lambda/radians_per_pixel)*pow(diam, -0.3333), 0.6 );
-    //dimm_K = radians_per_pixel^2 / (0.358 * sqr(lambda) * pow(diam, -0.3333));
 
 }
 

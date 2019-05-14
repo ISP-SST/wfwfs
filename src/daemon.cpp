@@ -384,6 +384,10 @@ void Daemon::init(void) {
         try {
             load_calibs( tmp );
         } catch( ... ) {}
+    } else {
+        if( !tmp.empty() && !bfs::create_directories(tmp) ) {
+            cerr << boost::format( "failed to create directory for calibrations: %s" ) % tmp << endl;
+        }
     }
     
     tmp = bfs::path(outputdir+"/calib/dark.fits");
@@ -463,8 +467,8 @@ void Daemon::queue_frame( const uint8_t* data, bpx::ptime ts ) {
         }
         bpx::time_duration elapsed(ts - previous_frame);
         double d = elapsed.total_microseconds()*1E-6;
+        avg_interval *= 0.9;
         avg_interval += d * 0.1;
-        avg_interval /= 1.1;
     }
 
     Frame& f = fqueue.getEmpty();

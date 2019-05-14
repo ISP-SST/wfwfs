@@ -41,6 +41,8 @@ namespace wfwfs {
         SeeingLog( std::string n, int c );
         SeeingLog( SeeingLog&& );
         
+        void setInterval( int i ) { interval = i; };
+        void setName( std::string n ) { name = n; };
         void setDir( std::string s ) { dir = s; };
         void open( void );
         void close( void );
@@ -48,6 +50,10 @@ namespace wfwfs {
         void check( void );
 
         
+        std::string get_name( void ) { return name; };
+        void set_min_lock( float ml ) { min_lock = ml; };
+
+        bool hasColumns( void ) { return !columns.empty(); }
         void addColumns( std::string );
         void printHeader( void );
         

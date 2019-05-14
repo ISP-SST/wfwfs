@@ -28,17 +28,21 @@ using namespace std;
 
 TcpServer::TcpServer( boost::asio::io_service& io_service, uint16_t port )
     : acceptor( io_service, bip::tcp::endpoint( bip::tcp::v4(), port ) ), onConnected(nullptr) {
+        
     acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
 
 }
 
+
 void TcpServer::accept(void) {
+    
     auto nextConnection = TcpConnection::newPtr( acceptor.get_io_service() );
 
     acceptor.async_accept( nextConnection->socket(),
                            boost::bind( &TcpServer::onAccept, this, nextConnection,
                                         boost::asio::placeholders::error ) );
 }
+
 
 void TcpServer::onAccept( TcpConnection::Ptr conn,
                                const boost::system::error_code& error ) {

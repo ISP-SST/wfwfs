@@ -35,7 +35,8 @@ namespace wfwfs {
 
 
     template<typename T> struct PointType {
-        PointType ( T yy=0, T xx=0 ) : x(xx), y(yy) {}
+        PointType ( T xy=0 ) : x(xy), y(xy) {}
+        PointType ( T yy, T xx ) : x(xx), y(yy) {}
         PointType ( PointType<T>&& rhs ) : x(std::move(rhs.x)), y(std::move(rhs.y)) {}
         PointType ( const PointType<T>& rhs ) : x(rhs.x), y(rhs.y) {}
         template <typename U> PointType ( const PointType<U>& rhs ) : x(rhs.x), y(rhs.y) {}

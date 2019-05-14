@@ -50,11 +50,11 @@ SeeingLog::SeeingLog( SeeingLog&& rhs ) : dir( std::move(rhs.dir) ), name( std::
 
 void SeeingLog::open( void ) {
     
-    bfs::path filePath( dir );
     timestamp = bpx::second_clock::universal_time();
     
-    filePath /= name + "_" + to_iso_extended_string( timestamp.date() ) + ".txt";
-
+    bfs::path filePath( dir );
+    filePath /= name + "_" + to_iso_extended_string( timestamp.date() ) + ".log";
+    
     bfs::path dirPath = filePath.parent_path();
     if( !dirPath.empty() && !bfs::exists(dirPath) ) {
         if( !bfs::create_directories(dirPath) ) {
@@ -138,21 +138,21 @@ void SeeingLog::run( std::vector<DimmSet>& dimm_sets ) {
     
     trd = std::thread([&](){
         
-        high_resolution_clock::time_point previous = high_resolution_clock::now();
+        high_resolution_clock::time_point next = high_resolution_clock::now();
+        
         while( running ) {
             
-            high_resolution_clock::time_point next = previous + seconds(interval);
-            previous = next;
+            next += seconds(interval);
             
-            bpx::ptime now = bpx::not_a_date_time; //microsec_clock::universal_time();
-            vector<float> values( columns.size(), 0.0/0.0 );
+            bpx::ptime now = bpx::microsec_clock::universal_time();
             bool has_finite_values(false);
+            vector<float> values( columns.size(), 0.0 );
             
             for( size_t i(0); i<columns.size(); ++i ) {
                 for( auto& ds: dimm_sets ) {
                     if( ds.get_name() == columns[i].first ) {
-                        PointF v = ds.calculate_r0( now, columns[i].second );
-                        if( v.isfinite() ) {
+                        PointF v = ds.calculate_r0( now, columns[i].second, min_lock );
+                        if( v.max_abs() > 0.0 ) {
                             has_finite_values = true;
                             values[i] = (v.x+v.y)/2;
                         }
