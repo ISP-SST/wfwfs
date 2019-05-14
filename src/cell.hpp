@@ -32,9 +32,11 @@ namespace wfwfs {
 
     struct Cell {
 
-        Cell( PointI p ) : pos(p) {};
+        Cell( PointI p, int id=-1 ) : ID(id), pos(p) {};
         
-        PointI pos;                             // coordinates for the center of the cell
+        int ID;
+        PointI pos;                             // pixel-coordinates for the center of the cell
+        PointI grid_pos;                        // Nominal grid coordinates, the central subfield is defined to have coordinates (0,0)
         
         inline operator std::string() const { return (std::string)pos; }
         
