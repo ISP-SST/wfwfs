@@ -49,9 +49,11 @@ DimmSet::DimmSet(size_t i) : id(i), ref_cell_size(64), cell_size(76), subcell_si
 DimmSet::DimmSet( const DimmSet& rhs ) : id(rhs.id),
                                     name(rhs.name),
                                     cells(rhs.cells),
+                                    subcells(rhs.subcells),
                                     avg_shifts(rhs.avg_shifts),
                                     ref_cell_size(rhs.ref_cell_size),
                                     cell_size(rhs.cell_size),
+                                    subcell_size(rhs.subcell_size),
                                     max_shift(rhs.max_shift),
                                     ref_cell(rhs.ref_cell),
                                     cadence(rhs.cadence),
@@ -70,9 +72,11 @@ DimmSet::DimmSet( const DimmSet& rhs ) : id(rhs.id),
 DimmSet::DimmSet( DimmSet&& rhs ) : id(rhs.id),
                                     name(std::move(rhs.name)),
                                     cells(std::move(rhs.cells)),
+                                    subcells(std::move(rhs.subcells)),
                                     avg_shifts(std::move(rhs.avg_shifts)),
                                     ref_cell_size(rhs.ref_cell_size),
                                     cell_size(rhs.cell_size),
+                                    subcell_size(rhs.subcell_size),
                                     max_shift(rhs.max_shift),
                                     ref_cell(rhs.ref_cell),
                                     cadence(rhs.cadence),
@@ -123,6 +127,26 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
         throw runtime_error("Error: cell_pos must be defined for each dimm-set!!");
     }
     
+    try {
+        subcell_size = cfg_ptree.get<size_t>( "subcell_size", subcell_size );
+        PointI subcell_offset(0,0);
+        subcell_offset += (ref_cell_size-subcell_size)/2;
+        vector<int32_t> scpv = cfg_ptree.get< vector<int32_t> >( "subcell_pos", vector<int32_t>() );
+        if( !scpv.empty() ) {
+            if( scpv.size()%2 == 0 ) {
+                for( size_t i(0); i<scpv.size()-1; i += 2) {
+                    PointI subcell_pos( scpv[i], scpv[i+1] );
+                    subcell_pos += subcell_offset;
+                    subcells.push_back( Cell( subcell_pos, cell_id++ ) );
+                }
+            } else {
+                cout << "Error: subcell_pos must contain an even number of values (it's row/column pairs)" << endl;
+            }
+        }
+    } catch( ... ) {
+        cout << "Error: failed to parse subcell configuration." << endl;
+    }
+
     if( ref_cell > cells.size() ) ref_cell = 0;    // use first cell as reference if none was specified
 
 
@@ -240,6 +264,42 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
                 cell_shift = NAN;
             }
             shifts[cellID] = cell_shift;
+            if( !subcells.empty() ) {
+                static const size_t subcell_search = 3;                         // TBD: hardcoded range for subfield search?
+                static const int subcell_shift = (max_shift - subcell_search); 
+                if( subcell_shift <= 0 ) {
+                    continue;
+                }
+                size_t scSize = subcell_size + 2*subcell_search;
+                PointI cell_offset;
+                if( min_found ) {                                               // restrict search to the vicinity of the larger FOV
+                    cell_offset.x = std::round( cell_shift.x );
+                    cell_offset.y = std::round( cell_shift.y );
+                }
+                for( auto& sc: subcells ) {
+                    int subcellID = c.ID + 100*sc.ID;                           // Create a unique ID for the cell/subcell combination.
+                    avg_shifts[subcellID] *= mix;
+                    size_t subcellOffset = sc.pos.y*cell_size + sc.pos.x;
+                    const data_t* subRefPtr = refPtr + subcellOffset;
+                    subcellOffset += (cell_offset.y+subcell_shift)*cell_size + cell_offset.x+subcell_shift;
+                    const data_t* subcellPtr = cellPtr + subcellOffset;
+                    if( subcellOffset + scSize*(cell_size+1) > cs2 ) {          // This shift will be too large, i.e. the array will go out of bounds!
+                        continue;
+                    }
+                    PointF subcell_delta;
+                    bool ok = sads( subRefPtr, subcell_size, cell_size, subcellPtr, scSize, cell_size, subcell_delta, tmp );
+                    if( ok ) {
+                        if( min_found ) {
+                            subcell_delta -= cell_offset;
+                        }
+                        avg_shifts[subcellID] += subcell_delta*(1.0-mix);
+                    } else {
+                        // if the minumum was not well-determined (at the edge of search-area), set to NAN
+                        subcell_delta = NAN;
+                    }
+                    shifts[subcellID] = subcell_delta;
+                }
+            }
         }
         unique_lock<mutex> lock( mtx );
         cell_shifts[ data.timestamp ] = std::move(shifts);
@@ -286,7 +346,18 @@ void DimmSet::calculate_dims( void ) {
                 for( size_t j(i+1); j<nCells; ++j ) {
                     if( j == ref_cell ) continue;
                     PointI cell_pair(i,j);
-                    calculate_dim( last_dimm, shifts, cell_pair );
+                    if( subcells.empty() ) {
+                        calculate_dim( last_dimm, shifts, cell_pair );
+                    } else {
+                        for( auto& sc: subcells ) {
+                            PointI subcell_pair = cell_pair;
+                            subcell_pair += 100*sc.ID;
+                            if( differential_motion.count(subcell_pair) == 0 ) {
+                                differential_motion[ subcell_pair ] = differential_motion[ cell_pair ];
+                            }
+                            calculate_dim( last_dimm, shifts, subcell_pair );
+                        }
+                    }
                 }
             }
         }

@@ -99,9 +99,11 @@ namespace wfwfs {
         
         
         std::vector<Cell> cells;
+        std::vector<Cell> subcells;
         std::map<int,PointF> avg_shifts;
         uint16_t ref_cell_size;
         uint16_t cell_size;
+        uint16_t subcell_size;
         uint8_t max_shift;
         size_t ref_cell;
         
