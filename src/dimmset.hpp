@@ -77,6 +77,8 @@ namespace wfwfs {
         uint8_t get_max_shift( void ) const { return max_shift; }
         size_t get_data_size( void ) const;
         
+        void clear_frame_data( void );
+        void zero_avgs( void );
         void set_ravg( float );
         void set_min_lock( float ml ){ min_lock=ml; };
         

@@ -103,6 +103,8 @@ namespace wfwfs {
 
         void play( void );
         void pause( void );
+        
+        void light( bool );
 
         std::string list_calib( void );
         std::string list_calibs( void );
@@ -130,6 +132,7 @@ namespace wfwfs {
         
         uint16_t nQueuedJobs;
         uint32_t hostTimeout;
+        bool has_light;
 
         std::mutex connMutex;
 

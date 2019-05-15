@@ -60,6 +60,7 @@ namespace wfwfs {
         void start( void );
         void stop( void );
         void maintenance( void );
+        void zero_avgs( void );
         
         void set_image_scale( float s ) { arcsecs_per_pixel = s; precalculate(); }
         void set_diam( float d ) { diam = d; precalculate(); }
@@ -74,6 +75,7 @@ namespace wfwfs {
         std::string get_ashifts( size_t id=0 ) const;
         std::string get_vars( int duration=0 ) const;
         
+        float get_avg_intensity( void ) const { return avg_intensity; }
         template <typename T>
         void draw_cell( Array<T>& img, PointI c, uint16_t cell_size, bool mark=false ) const;
         template <typename T>
@@ -81,6 +83,7 @@ namespace wfwfs {
 
         size_t get_data_size( void ) const;
         DimmSet::dimm_data_t get_buffer( void );
+        void clear_frame_data( void );
         void clear_buffers( void );
 
 
@@ -99,6 +102,7 @@ namespace wfwfs {
         std::vector<DimmSet> dimm_sets;
         std::vector<DimmSet::dimm_data_t> buffers;
         size_t dsID;
+        float avg_intensity;                // Store current intensity, as measured within the DIMM cells (stored as a fraction of max-intensity)
 
         std::vector<SeeingLog> logs;
         

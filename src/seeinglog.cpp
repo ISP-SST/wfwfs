@@ -159,6 +159,10 @@ void SeeingLog::printHeader( void ) {
 
 void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
     
+    if( running ) {
+        return;
+    }
+    
     using namespace std::chrono;
 
     static const bpx::ptime epoch_time( boost::gregorian::date(1970,1,1) ); 
@@ -220,10 +224,12 @@ void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
 
 void SeeingLog::stop( void ) {
     
-    running = false;
-    if( trd.joinable() ) {
-        trd.join();
+    if( running ) {
+        running = false;
+        if( trd.joinable() ) {
+            trd.join();
+        }
     }
-
+    
 }
 

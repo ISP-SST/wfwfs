@@ -259,6 +259,24 @@ size_t DimmSet::get_data_size( void ) const {
 }
 
 
+void DimmSet::clear_frame_data( void ) {
+
+    lock_guard<mutex> lock( mtx );
+    frame_data.clear();
+    
+}
+
+
+void DimmSet::zero_avgs( void ) {
+
+    for( auto& as: avg_shifts ) {
+        as.second = 0.0;
+    }
+    
+}
+
+
+
 void DimmSet::set_ravg( float r ) {
     
     running_average = r;
@@ -460,9 +478,11 @@ PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur, float ml ) {
     size_t nPairs(0);
     
     const PointD variance_cutoff = (2*max_shift)*(2*max_shift)/12.0;       // Take a uniform distribution over the search-space as limiting value.
-
+    PointD r0_cutoff(0,0);
+    
     for( auto& dm: differential_motion ) {
         auto& pi = dm.second;
+        r0_cutoff += Seeing::apply_dimm_equations( variance_cutoff, pi.separation );
         // The DIMM method is only valid for distances larger than 2x the subaperture diameter.
         if( pi.separation < 2*Seeing::diam_px ) continue;
         
@@ -506,6 +526,12 @@ PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur, float ml ) {
 
     if( nPairs ) {
         r0_sum /= nPairs;
+    } else {
+        size_t nDM = differential_motion.size();
+        if( nDM ) {
+            r0_cutoff /= nDM;
+        }
+        r0_sum = r0_cutoff;
     }
     
 #ifdef PRINT_DEBUG

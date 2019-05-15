@@ -22,6 +22,8 @@
  ***************************************************************************/
 #include "seeing.hpp"
 
+#include <numeric>
+
 #include <boost/algorithm/string.hpp>
 
 
@@ -43,7 +45,7 @@ double Seeing::radians_per_pixel(0);
 double Seeing::dimm_K(0);
 
 
-Seeing::Seeing( void ) : dsID(1) {
+Seeing::Seeing( void ) : dsID(1), avg_intensity(0.0) {
 
     precalculate();
     
@@ -108,6 +110,9 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
     size_t ds_offset(0);
 
     memset( out, 0, get_data_size() );
+    
+    double sum(0.0);
+    size_t nSummed(0);
         
     for( auto& ds: dimm_sets ) {
         ds.add_frame_data( f.timestamp, buf, ds_offset );
@@ -135,13 +140,28 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
                 } else {
                     std::copy_n( in+offset, this_cell_size, outPtr );
                 }
+                sum = std::accumulate( outPtr, outPtr+this_cell_size, sum );
+                nSummed += this_cell_size;
                 outPtr += cs;
             }
             c_offset += imgStride;
         }
         ds_offset += c_offset;
     }
+    
+    if( nSummed ) {
+        sum /= nSummed;
+    }
+    
+    if( maxval ) {
+        sum /= maxval;
+    }
+    
+    const float mix = 0.1;
+    avg_intensity *= (1.0-mix);
+    avg_intensity += mix*sum;
 
+    
 }
 template void Seeing::copy_cell_data<uint8_t>( Frame&, float*, float*, size_t, int );
 template void Seeing::copy_cell_data<uint16_t>( Frame&, float*, float*, size_t, int );
@@ -257,6 +277,15 @@ void Seeing::maintenance( void ) {
     
     for( auto& l: logs ) {
         l.check();
+    }
+    
+}
+
+
+void Seeing::zero_avgs( void ) {
+    
+    for( auto& ds: dimm_sets ) {
+        ds.zero_avgs();
     }
     
 }
@@ -483,6 +512,14 @@ DimmSet::dimm_data_t Seeing::get_buffer( void ) {
     buffers.push_back( new_buffer );
     return new_buffer;
     
+}
+
+void Seeing::clear_frame_data( void ) {
+    
+    for( auto& ds: dimm_sets ) {
+        ds.clear_frame_data();
+    }
+
 }
 
 

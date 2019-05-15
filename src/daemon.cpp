@@ -275,7 +275,7 @@ namespace {
 }
 
 
-Daemon::Daemon( bpo::variables_map& vm ) : Application( vm, LOOP ), settings( vm ), timer( ioService ), ddPtr(nullptr), ggPtr(nullptr) {
+Daemon::Daemon( bpo::variables_map& vm ) : Application( vm, LOOP ), settings( vm ), has_light(false), timer( ioService ), ddPtr(nullptr), ggPtr(nullptr) {
     
     uint16_t nT = settings["threads"].as<uint16_t>();
     if( nT ) {
@@ -303,7 +303,7 @@ Daemon::Daemon( bpo::variables_map& vm ) : Application( vm, LOOP ), settings( vm
         throw;
     }
    
-seeing.start_logs();
+
 }
 
 
@@ -480,7 +480,9 @@ void Daemon::queue_frame( const uint8_t* data, bpx::ptime ts ) {
         bpx::ptime cell_time = bpx::microsec_clock::universal_time();
         fqueue.queue( f );
         bpx::ptime queue_time = bpx::microsec_clock::universal_time();
-        seeing.process( avg_interval );
+        if( has_light ) {
+            seeing.process( avg_interval );
+        }
         bpx::ptime proc_time = bpx::microsec_clock::universal_time();
         bpx::time_duration rt(read_time - start_time);
         bpx::time_duration ct(cell_time - read_time);
@@ -497,7 +499,13 @@ void Daemon::queue_frame( const uint8_t* data, bpx::ptime ts ) {
         copy_cell_data( f );
         fqueue.queue( f );
         //seeing.process( ioService );
-        ioService.post( bind(&Seeing::process, &seeing, avg_interval ) );
+        if( has_light ) {
+            ioService.post( bind(&Seeing::process, &seeing, avg_interval ) );
+        }
+    }
+    
+    if( !has_light ) {
+        seeing.clear_frame_data();      // Discard frame-data that should not be processed.
     }
     
     previous_frame = ts;
@@ -797,6 +805,20 @@ void Daemon::maintenance( void ) {
 
 
     timer.expires_from_now( boost::posix_time::seconds( 5 ) );
+    
+    static float last_intensity(0.05);
+    
+    float avg_intensity = seeing.get_avg_intensity();
+    float ratio = avg_intensity/last_intensity;
+
+    //if( fabs((avg_intensity-previous_intensity)/previous_intensity) > 0.3 ) { FIXME
+    if( ratio < 0.2 ) {
+        light( false );
+    } else if( ratio > 5 ) {
+        light( true );
+    }
+
+    last_intensity = avg_intensity;
     
     seeing.maintenance();
     
@@ -1182,6 +1204,18 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
     } else if(command == "flat") {
         //flatburst( pop<int>( line ) );
         ioService.post( bind( &Daemon::flatburst, this, pop<int>( line ) ) );
+    } else if( command == "light" ) {
+        string state = popword( line );
+        if( state == "on" ) {
+            light( true );
+        } else if( state == "off" ) {
+            light( false );
+        } else {
+            light( !has_light );
+        }
+        replyStr = "OK light ";
+        if( has_light ) replyStr += "on";
+        else replyStr += "off";
     } else if(command == "load_calibs") {
         //flatburst( pop<int>( line ) );
         ioService.post( bind( &load_calibs, outputdir+"/calib/" ) );
@@ -1362,6 +1396,20 @@ void Daemon::pause( void ) {
     
     // stop logs & bursts
     
+}
+
+
+void Daemon::light( bool state ) {
+ 
+    if( has_light != state ) {
+        if( state ) {
+            seeing.zero_avgs();
+            seeing.start_logs();
+        } else {
+            seeing.stop_logs();
+        }
+        has_light = state;
+    }
 }
 
 
