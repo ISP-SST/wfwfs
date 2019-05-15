@@ -1,4 +1,5 @@
 outputdir = /scratch/tomas/wfwfs/slask/
+vtt_outputdir = /scratch/tomas/vtt/
 frame_queue = 50
 arcsecs_per_pixel = 0.21
 subaperture_diameter = 0.135
@@ -16,6 +17,7 @@ camera {
     gain = 0
     camera_id = camXXXVI
     camera_type = /scratch/tomas/wfwfs/ffov_8/
+    vtt_camera_type = /scratch/tomas/vtt/2019-05-14/14:41:18
 }
 meta {
     OBSERVER = Tomas Hillberg
@@ -53,15 +55,17 @@ save {
     compress = 1
 }
 log {
-    name = r0_log
+    name = wfwfs_r0
     interval = 1
     min_lock = 0.3
-    columns = r0 r0 2 r0 10 r0_sub r0_sub 2 r0_sub 10
+    xcolumns = 4-corners triangle 4-corners 2 triangle 2 4-corners 10 4-corners_sub 4-corners_sub 2 4-corners_sub 10
+    columns = 4-corners 4-corners 5 4-corners 180 triangle triangle 5 triangle 180
 }
 dimm {
-    name r0
+    name 4-corners
     cell_size = 51
-    cell_pos = 527,461,532,1612,1027,747,1526,459,1528,1613
+    cell_pos = 530,461,532,1612,1027,747,1526,458,1528,1613
+    vtt_cell_pos = 699,463,710,1611,1030,656,1356,460,1363,1606
     ref_cell = 2
     max_shift = 10
     min_lock = 0.3
@@ -70,7 +74,19 @@ dimm {
     running_average = 30
 }
 dimm {
-    name r0_sub
+    name triangle
+    cell_size = 51
+    cell_pos = 530,1037,1027,747,1526,458,1528,1613
+    vtt_cell_pos = 699,463,710,1611,1030,656,1682,1035
+    ref_cell = 1
+    max_shift = 10
+    min_lock = 0.3
+    cadence = 1
+    duration = 5
+    running_average = 30
+}
+xdimm {
+    name 4-corners_sub
     cell_size = 51
     cell_pos = 527,461,532,1612,1027,747,1526,459,1528,1613
     ref_cell = 2

@@ -362,7 +362,7 @@ void DimmSet::calculate_dim( boost::posix_time::ptime ts, const map<int,PointF>&
     pair_info& pi = differential_motion[ ij ];
     // The DIMM method is only valid for distances larger than approximately 2x the subaperture diameter.
     if( pi.separation < 2*Seeing::diam_px ) return;
-    if( true && (pi.diff.min_abs() > 0.1*pi.diff.max_abs()) ) {    // NOTE: this is just to mimic the AO code, i.e. only allow the "almost" horizontal/vertical pairs
+    if( false && (pi.diff.min_abs() > 0.1*pi.diff.max_abs()) ) {    // NOTE: this is just to mimic the AO code, i.e. only allow the "almost" horizontal/vertical pairs
         return;
     }
     const PointD avg_ji = avg_shifts[ij.x] - avg_shifts[ij.y];
@@ -375,6 +375,8 @@ void DimmSet::calculate_dim( boost::posix_time::ptime ts, const map<int,PointF>&
 
             data.squared_shift = differential_shift*differential_shift;
             data.ok = true;
+        } else {
+            data.ok = false;
         }
     } catch ( ... ) { }
     

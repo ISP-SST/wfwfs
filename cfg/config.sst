@@ -36,13 +36,27 @@ log {
     name = wfwfs_r0
     min_lock = 0.3
     interval = 1
-    columns = 4-corners 2 4-corners 5 4-corners 180 4-corners_sub 2 4-corners_sub 5 4-corners_sub 180
+    xcolumns = 4-corners 2 4-corners 5 4-corners 180 4-corners_sub 2 4-corners_sub 5 4-corners_sub 180
+    columns = triangle 2 triangle 5 triangle 180 triangle_sub 2 triangle_sub 5 triangle_sub 180
 }
 dimm {
-    name 4-corners
+    name triangle
     cell_size = 51
-    cell_pos = 529,461,531,1611,1027,747,1524,460,1527,1613
-    ref_cell = 2
+    cell_pos = 530,1037,1027,747,1526,458,1528,1613
+    ref_cell = 1
+    max_shift = 10
+    min_lock = 0.3
+    cadence = 1
+    duration = 5
+    running_average = 30
+}
+dimm {
+    name triangle_sub
+    cell_size = 51
+    cell_pos = 530,1037,1027,747,1526,458,1528,1613
+    ref_cell = 1
+    subcell_pos = -17,-17,-17,0,-17,17,0,-17,0,0,0,17,17,-17,17,0,17,17
+    subcell_size = 17
     max_shift = 10
     min_lock = 0.3
     cadence = 1
@@ -50,13 +64,11 @@ dimm {
     running_average = 30
     auto_adjust = 0
 }
-dimm {
-    name 4-corners_sub
+xdimm {
+    name 4-corners
     cell_size = 51
-    cell_pos = 529,461,531,1611,1027,747,1524,460,1527,1613
+    cell_pos = 530,461,532,1612,1027,747,1526,458,1528,1613
     ref_cell = 2
-    subcell_pos = -17,-17,-17,0,-17,17,0,-17,0,0,0,17,17,-17,17,0,17,17
-    subcell_size = 17
     max_shift = 10
     min_lock = 0.3
     cadence = 1
