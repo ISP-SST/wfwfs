@@ -565,7 +565,7 @@ vector<string> Fits::getText( bool raw ) {
 
 
 template <typename T>
-string wfwfs::Fits::makeCard( string key, T value, string comment ) {
+string wfwfs::Fits::makeCard( string key, T value, const string& comment ) {
     boost::to_upper(key);
     string ret = key;
     ret.resize( 8, ' ' );       // pad with spaces, or truncate, to 8 characters
@@ -577,8 +577,9 @@ string wfwfs::Fits::makeCard( string key, T value, string comment ) {
     return ret;
 }
 namespace wfwfs {
+
     template <>
-    string Fits::makeCard( string key, string value, string comment ) {
+    string Fits::makeCard( string key, string value, const string& comment ) {
         boost::to_upper(key);
         string ret = key;
         ret.resize( 8, ' ' );       // pad with spaces, or truncate, to 8 characters
@@ -590,22 +591,22 @@ namespace wfwfs {
 
         boost::replace_all( value, "'", "''" );
         ret += "= '" + value + "'";
-        if( comment != "" ) {
+        if( !comment.empty() ) {
             ret += " / " + comment;
         }
         ret.resize( 80, ' ' );       // pad with spaces, or truncate, to 80 characters
         return ret;
     }
     template <>
-    string Fits::makeCard( string key, const char* value, string comment ) {
+    string Fits::makeCard( string key, const char* value, const string& comment ) {
         return makeCard(key,string(value),comment);
     }
     template <>
-    string Fits::makeCard( string key, bpx::ptime date, string comment ) {
+    string Fits::makeCard( string key, bpx::ptime date, const string& comment ) {
         return makeCard(key,bpx::to_iso_extended_string(date),comment);
     }
     template <>
-    string Fits::makeCard( string key, bool value, string comment ) {
+    string Fits::makeCard( string key, bool value, const string& comment ) {
         boost::to_upper(key);
         string ret = key;
         ret.resize( 8, ' ' );       // pad with spaces, or truncate, to 8 characters
@@ -622,10 +623,41 @@ namespace wfwfs {
     }
 
 }
-template string Fits::makeCard( string, int, string );
-template string Fits::makeCard( string, long, string );
-template string Fits::makeCard( string, float, string );
-template string Fits::makeCard( string, double, string );
+template string Fits::makeCard( string, string, const string& );
+template string Fits::makeCard( string, int16_t, const string& );
+template string Fits::makeCard( string, uint16_t, const string& );
+template string Fits::makeCard( string, int32_t, const string& );
+template string Fits::makeCard( string, uint32_t, const string& );
+template string Fits::makeCard( string, int64_t, const string& );
+template string Fits::makeCard( string, uint64_t, const string& );
+template string Fits::makeCard( string, float, const string& );
+template string Fits::makeCard( string, double, const string& );
+
+
+string Fits::makeCard( string key, const string& comment ) {
+    boost::to_upper(key);
+    string ret = key;
+    ret.resize( 8, ' ' );       // pad with spaces, or truncate, to 8 characters
+    if( comment != "" ) {
+        if( !boost::iequals( key, "COMMENT ") ) {
+            ret += " / ";       // no slash needed for COMMENT keyword
+        }
+        ret += comment;
+    }
+    ret.resize( 80, ' ' );       // pad with spaces, or truncate, to 80 characters
+    return ret;
+}
+
+
+void Fits::removeCards( vector<string>& hdr, string key ) {
+    key.resize( 8, ' ' );       // pad with spaces, or truncate, to 8 characters
+    hdr.erase( std::remove_if( hdr.begin(), hdr.end(), [&](string a) {
+        return key.compare( a.substr(0,8) ) == 0;
+        //return boost::iequals( key, a.substr(0,8) );
+    } ),
+    hdr.end() );
+}
+
 
 void Fits::insertCard( vector<string>& hdr, string card, size_t location ) {
     
@@ -1334,7 +1366,9 @@ void Fits::write( const string& filename, const wfwfs::Array<T>& data, shared_pt
         if( hdr->status_ ) {
             throwStatusError( "Fits::write() create_img", hdr->status_ );
         }
-    
+        
+        Fits::removeCards( hdr->primaryHDU.cards, "END" );    // just in case it is not the last card, or if there are multiple.
+
         for( auto& c: hdr->primaryHDU.cards ) {
             fits_update_card( hdr->fitsPtr_, c.substr(0,8).c_str(), c.c_str(), &hdr->status_ ); 
             if( hdr->status_ ) {

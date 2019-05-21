@@ -107,7 +107,6 @@ void FrameQueue::queue( Frame& f ) {
     
     lock_guard<mutex> lock( mtx );
     frames_by_id.emplace( f.id, f );
-    
     cond.notify_all();
 
 }
@@ -157,12 +156,11 @@ Frame& FrameQueue::getFrame( size_t id, bool wait ) {
     
     if( frames_by_id.count(id) ) {
         return frames_by_id.at(id);
-    } else if( !frames_by_id.empty() ) {   // if frame with id has already been overwritten, just return the latest and let the caller decide what to do
-        return frames_by_id.rbegin()->second;
+    } else if( !frames_by_id.empty() ) {   // if frame with id has already been overwritten, just return the first in the queue
+        return frames_by_id.begin()->second;
     }
     
     throw runtime_error("The FrameQueue is empty, can not get Frame!");
-
     
 }
 

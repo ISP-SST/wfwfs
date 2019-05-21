@@ -76,7 +76,10 @@ namespace wfwfs {
         void queue_frame( const uint8_t*, boost::posix_time::ptime );
         void get_frame( TcpConnection::Ptr conn, int x1, int y1, int x2, int y2, int scale=1, bool darkflat=false, size_t fsel=0, bool do_histo=false );
         std::string make_filename( int, long, const std::string& state );
-        void save_burst( int, int, long, std::string );
+        std::string make_filename( std::string, int, int );
+        void save_fits( std::string fn, int n_frames, uint32_t frames_per_file,
+                        bool compress=true, size_t first_frame=0, std::string acc_filename="" );
+
         template <typename T> void df_cell( Frame& f, Cell& c );
         void copy_cell_data( Frame& f );
         
@@ -112,7 +115,7 @@ namespace wfwfs {
         void load_flat( int id=-1 );
         
         void updateCalibID( void );
-        void makeHdr( std::shared_ptr<Fits>& );
+        void makeMeta( std::vector<std::string>& );
         int accumulate( Array<uint32_t>&, size_t );
         void do_accumulation( Array<float>&, Array<uint32_t>&, std::string, size_t );
         void darkburst( size_t );

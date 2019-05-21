@@ -76,12 +76,7 @@ void SeeingLog::open( void ) {
     filePath /= name + "_" + to_iso_extended_string( timestamp.date() ) + ".log";
     
     bfs::path dirPath = filePath.parent_path();
-    if( !dirPath.empty() && !bfs::exists(dirPath) ) {
-        if( !bfs::create_directories(dirPath) ) {
-            cerr << boost::format( "failed to create log directory: %s" ) % dirPath << endl;
-            return;
-        }
-    }
+    maybeCreateDir( dirPath );
     
     lock_guard<mutex> lock(mtx);
     if( ofstream::is_open() ) {

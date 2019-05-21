@@ -31,6 +31,9 @@
 #include "array.hpp"
 // #include "arrayutil.hpp"
 
+#include <string>
+#include <vector>
+
 #include <fitsio.h>
 
 namespace wfwfs {
@@ -60,6 +63,8 @@ namespace wfwfs {
                             FITS_ULONG };
         static const uint8_t typeSizes[];   // = { 0, 1, 2, 4, 4, 8, 8, 0, 0, 16 };
         
+        struct NoValue { };
+        
         Fits( void );
         Fits( const std::string& );
         ~Fits();
@@ -72,7 +77,9 @@ namespace wfwfs {
         std::vector<std::string> getText( bool );
         
         template <typename T>
-        static std::string makeCard( std::string key, T value, std::string comment="" );
+        static std::string makeCard( std::string key, T value, const std::string& comment="" );
+        static std::string makeCard( std::string key, const std::string& comment="" );   // version for cards without value, i.e. "END", or comments.
+        static void removeCards( std::vector<std::string>& hdr, std::string key );
         static void insertCard( std::vector<std::string>& hdr, std::string card, size_t location=std::string::npos );
         static void insertCardAfter( std::vector<std::string>& hdr, std::string card, std::string after );
         static void insertCardBefore( std::vector<std::string>& hdr, std::string card, std::string before );

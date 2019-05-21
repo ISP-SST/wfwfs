@@ -100,6 +100,19 @@ namespace wfwfs {
 
         }
         
+        template <typename T,typename U>
+        void addFrame( const T* d, U* accumulator ) {
+            size_t nEl = width*height;
+            if( depth > 8 ) {
+                const uint16_t* data = reinterpret_cast<const uint16_t*>( d );
+                std::transform( accumulator, accumulator+nEl, data, accumulator, add<U,uint16_t>() );
+            } else {
+                const uint8_t* data = reinterpret_cast<const uint8_t*>( d );
+                std::transform( accumulator, accumulator+nEl, data, accumulator, add<U,uint8_t>() );
+            } 
+        }
+
+        
         template <typename T>
         void copyFrame( const Frame& f, T* out ) {
             size_t nEl = width*height;

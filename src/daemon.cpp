@@ -25,6 +25,7 @@
 #include "arraystats.hpp"
 #include "cell.hpp"
 #include "filecam.hpp"
+#include "fitswriter.hpp"
 #include "pleoracam.hpp"
 #include "recursepath.hpp"
 #include "revision.hpp"
@@ -70,17 +71,19 @@ namespace {
     string camera_id;
     vector<string> meta_cards;
     
-    struct emeta {  // some volatile metadata that might change while daemon is running.
+    struct gui_meta {  // some volatile metadata that might change while daemon is running.
+        gui_meta() : use(false) {};
         string observer;
         string target;
         string date_obs;
         int compress;
+        bool use;
         string comments;
         size_t last_frame;      // just to keep track of framenumbers over consecutive bursts.
         operator std::string() const {
             return observer + ", " + target + ", " + date_obs + ", " + to_string(compress) + ", :" + comments;
         }
-    } extra_meta;
+    } gui_info;
 
     bool show_timing(false);
     
@@ -164,6 +167,7 @@ namespace {
     
     
     void load_calibs( bfs::path p ) {
+        calib_archive.clear();
         RecursePath rp( p, parse_path );
     }
     
@@ -249,13 +253,24 @@ namespace {
     
     void add_default_meta( void ) {
         
+        FitsWriter::clear_gmeta();
+        FitsWriter::update_gmeta( "SOLARNET", 0.5 );
+        FitsWriter::update_gmeta( "OBS_HDU", 1 );
+        FitsWriter::update_gmeta( "EXTEND", true );
+        FitsWriter::update_gmeta( "TELESCOP", "Swedish 1-meter Solar Telescope" );
+        FitsWriter::update_gmeta( "INSTRUME", "WFWFS" );
+        FitsWriter::update_gmeta( "OBSERVER", "SST Observer" );
+        FitsWriter::update_gmeta( "ORIGIN", "Institute for Solar Physics" );
+        FitsWriter::update_gmeta( "OBJECT", "Sun" );
+        FitsWriter::update_gmeta( "DETECTOR", "cam0" );
+        
         add_meta( "SOLARNET", "0.5" );
         add_meta( "OBS_HDU", "1" );
         add_meta( "TELESCOP", "Swedish 1-meter Solar Telescope" );
         add_meta( "INSTRUME", "WFWFS" );
         add_meta( "OBSERVER", "SST Observer" );
         add_meta( "ORIGIN", "Institute for Solar Physics" );
-        add_meta( "Object", "Sun" );
+        add_meta( "OBJECT", "Sun" );
         add_meta( "DETECTOR", "cam0" );
 
 /*        
@@ -363,6 +378,10 @@ void Daemon::init(void) {
     
     parsePropertyTree( cfg_ptree );
     
+    FitsWriter::update_gmeta( "DETECTOR", cam->info.id );
+    FitsWriter::update_gmeta( "DETMODEL", cam->info.model );
+    FitsWriter::update_gmeta( "DETFIRM", cam->info.firmware_version );
+    
     add_meta( "DETECTOR", cam->info.id );
     add_meta( "DETMODEL", cam->info.model );
     add_meta( "DETFIRM", cam->info.firmware_version );
@@ -385,9 +404,7 @@ void Daemon::init(void) {
             load_calibs( tmp );
         } catch( ... ) {}
     } else {
-        if( !tmp.empty() && !bfs::create_directories(tmp) ) {
-            cerr << boost::format( "failed to create directory for calibrations: %s" ) % tmp << endl;
-        }
+        maybeCreateDir( tmp );
     }
     
     tmp = bfs::path(outputdir+"/calib/dark.fits");
@@ -613,11 +630,11 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
 string Daemon::make_filename( int scannum, long framenum, const string& state ) {
     
     bpx::ptime timestamp = bpx::second_clock::universal_time();
-    if( extra_meta.date_obs.size() < 11 || extra_meta.date_obs[10] != 'T' ) {      
-        extra_meta.date_obs = to_iso_extended_string( timestamp );
+    if( gui_info.date_obs.size() < 11 || gui_info.date_obs[10] != 'T' ) {      
+        gui_info.date_obs = to_iso_extended_string( timestamp );
     }
-    string date = extra_meta.date_obs.substr( 0, 10 );
-    string time = extra_meta.date_obs.substr( 11, 8 );
+    string date = gui_info.date_obs.substr( 0, 10 );
+    string time = gui_info.date_obs.substr( 11, 8 );
 
     // SST:    ${outputdir}/${date}/${instrument}/08:36:03/${detector}/sst_camXX_${scan}_${frame}_state.fits
     // WFWFS:  ${outputdir}/${date}/${time}/wfwfs_${scan}_${frame}.fits
@@ -625,12 +642,7 @@ string Daemon::make_filename( int scannum, long framenum, const string& state ) 
     bfs::path filePath(outputdir);
     filePath /= date;
     filePath /= time;
-    if( !filePath.empty() && !bfs::exists(filePath) ) {
-        if( !bfs::create_directories(filePath) ) {
-            cerr << boost::format( "failed to create directory for output: %s" ) % filePath << endl;
-            return "";
-        }
-    }
+    maybeCreateDir( filePath );
 
     string filename = filename_prefix;
     filename += boost::str( boost::format("_%05ld_%07ld") % scannum % framenum );
@@ -644,120 +656,91 @@ string Daemon::make_filename( int scannum, long framenum, const string& state ) 
     return filePath.string();
 
 }
+
+
+string Daemon::make_filename( std::string tpl, int file_number, int frame_number ) {
     
-
-
-
-void Daemon::save_burst( int bcount, int scannum, long framenum, string statestr ) {
-
-
-    string burststate = statestr;
-
-    // Normal or a summed burst ?
-    bool sum = bcount < 0;
-    bcount = abs(bcount);
-
-    // Generate the filename
-    string filename = make_filename( scannum, framenum, statestr );
-    
-    bpx::ptime beg_time = bpx::microsec_clock::universal_time();
-    string date = to_iso_extended_string( beg_time.date() );
-    string timestamp = to_iso_extended_string( beg_time );
-    size_t pos = timestamp.find_last_of('.');
-    string timestamp_s = timestamp;
-    if( pos != string::npos ) timestamp_s = timestamp.substr(0,pos);
-    
-    shared_ptr<Fits> hdr;
-    makeHdr(hdr);
-    
-    float exp_time = cam->get_exposure();
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE-OBS", timestamp_s ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE", timestamp ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE-BEG", timestamp, "Start time of observations" ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "FILENAME", bfs::path(filename).filename().string() ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "SCANNUM", scannum ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "FRAMENUM", framenum ) );
-    if( !statestr.empty() ) Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "STATE", statestr ) );
-    
-    if( sum ) {
-        Array<uint32_t> acc( fqueue.height, fqueue.width );
-        int cnt = accumulate( acc, bcount );
-        bpx::ptime end_time = bpx::microsec_clock::universal_time();
-        timestamp = to_iso_extended_string(end_time);
-        bpx::time_duration elapsed = (end_time - beg_time);
-        end_time = beg_time + elapsed/2;
-        
-        Array<float> accF = acc;
-        accF /= cnt;
-
-        Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(end_time), "Average time of observations" ) );
-        Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE-END", timestamp, "End time of observations" ) );
-        Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "XPOSURE", cnt*exp_time, "[s] Total exposure time" ) );
-        Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "TEXPOSUR", exp_time, "[s] Single exposure time" ) );
-        Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "NSUMEXP", cnt, "Number of summed exposures" ) );
-        
-        Fits::write( filename, accF, hdr );
-    
-    } else {
-        
-        broadcast( "state", "OK state burst" );
-        
-        vector<size_t> dims = { fqueue.height, fqueue.width };
-        if( bcount > 1 ) dims.insert( dims.begin(), bcount );
-
-        Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "TAB_HDUS", "TABULATIONS;DATE-BEG" ) );
-        auto ahdu = make_shared<Fits::ascii_hdu>();
-        //Fits::updateCard( ahdu->cards, Fits::makeCard( "SOLARNET", 0.5 ) );
-        //Fits::updateCard( ahdu->cards, Fits::makeCard( "OBS_HDU", 1 ) );
-        ahdu->name = "TABULATIONS";
-        ahdu->table_info.push_back( {0,"DATE-BEG","A26","time"} );
-        ahdu->data.resize( bcount, 27 );
-        hdr->extHDUs.push_back( ahdu );
-        
-        char* tsPtr = ahdu->data.get();
-
-        if( fqueue.depth > 8 ) {
-            Array<uint16_t> imgs(dims);
-            size_t id(0);
-            int cnt(0);
-            while( cnt < bcount ) {
-                Frame& f = fqueue.getFrame( id, true );
-                if( id && (f.id != id) ) {
-                    cout << "Requested id = " << id << " but got id = " << f.id << endl;
-                }
-                id = f.id+1;
-                fqueue.copyFrame( f, imgs.ptr(cnt,0,0) );
-                string ts = to_iso_extended_string( f.timestamp );
-                ts.resize( 26, ' ' );
-                strcpy( tsPtr, ts.data() );
-                tsPtr += 27;
-                cnt++;
-            }
-            broadcast( "state", "OK state ready" );
-            Fits::write( filename, imgs, hdr );
-        } else {
-            Array<uint8_t> imgs(dims);
-            size_t id(0);
-            int cnt(0);
-            while( cnt < bcount ) {
-                Frame& f = fqueue.getFrame( id, true );
-                if( id && (f.id != id) ) {
-                    cout << "Requested id = " << id << " but got id = " << f.id << endl;
-                }
-                id = f.id+1;
-                fqueue.copyFrame( f, imgs.ptr(cnt,0,0) );
-                string ts = to_iso_extended_string( f.timestamp );
-                ts.resize( 26, ' ' );
-                strcpy( tsPtr, ts.data() );
-                tsPtr += 27;
-                cnt++;
-            }
-            broadcast( "state", "OK state ready" );
-            Fits::write( filename, imgs, hdr );
-        }
-        
-        
+    if( (frame_number >= 0) && contains( tpl, "%framenumber%", true ) ) {
+        string tmp = boost::str( boost::format("%07ld") % frame_number );
+        tpl = replace_n( tpl, "%framenumber%", tmp, 5 );
+        tpl = replace_n( tpl, "%FRAMENUMBER%", tmp, 5 );
     }
+    
+    if( (file_number >= 0) && contains( tpl, "%filenumber%", true ) ) {
+        string tmp = boost::str( boost::format("%05ld") % file_number );
+        tpl = replace_n( tpl, "%filenumber%", tmp, 5 );
+        tpl = replace_n( tpl, "%FILENUMBER%", tmp, 5 );
+    }
+    
+    if( contains( tpl, "%date%", true ) || contains( tpl, "%time%", true ) ) {
+        bpx::ptime timestamp = bpx::second_clock::universal_time();
+        string timestamp_s = to_iso_extended_string( timestamp );
+        string date = timestamp_s.substr( 0, 10 );
+        string time = timestamp_s.substr( 11, 8 );
+        tpl = replace_n( tpl, "%date%", date, 5 );
+        tpl = replace_n( tpl, "%DATE%", date, 5 );
+        tpl = replace_n( tpl, "%time%", time, 5 );
+        tpl = replace_n( tpl, "%TIME%", time, 5 );
+    }
+    
+    bfs::path filePath;
+    if( isRelative(tpl) ) {
+        filePath = bfs::path(outputdir);
+        filePath /= tpl;
+    } else {
+        filePath = bfs::path(tpl);
+    }
+    
+    return filePath.string();
+
+}
+
+
+void Daemon::save_fits( string filename_template, int nframes, uint32_t frames_per_file, bool compress,
+                        size_t first_frame, string acc_filename ) {
+
+    int nthreads = std::thread::hardware_concurrency();
+ 
+    // Generate meta for some volatile info that might change between calls
+    vector<string> cards;
+    Fits::updateCard( cards, Fits::makeCard( "DATAMIN", 0 ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATAMAX", (1<<fqueue.depth)-1 ) );
+    Fits::updateCard( cards, Fits::makeCard( "XPOSURE", cam->get_exposure(), "[s] Exposure time" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DETGAIN", cam->get_gain(), "[dB] or camera specific unit" ) );
+    Fits::updateCard( cards, Fits::makeCard( "CADENCE", cam->get_interval(), "[s]" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DETOFFS", 0, "[counts] or camera specific unit" ) );
+    float temp = cam->get_temp();
+    if( isfinite(temp) ) {
+        Fits::updateCard( cards, Fits::makeCard( "DETTEMP", temp,"[C] Current temperature of the detector" ) );
+    }
+
+    if( gui_info.use ) {
+        if( !gui_info.observer.empty() ) FitsWriter::update_gmeta( "OBSERVER", gui_info.observer );
+        if( !gui_info.target.empty() ) FitsWriter::update_gmeta( "OBJECT", gui_info.target );
+        string comments = gui_info.comments;
+        while( !comments.empty() ) {
+            string comment = popword( comments, ";" );
+            if( !comment.empty() ) {
+                Fits::insertCard( cards, Fits::makeCard( "COMMENT", comment ) );
+            }
+        }
+    }
+    
+    shared_ptr<FitsWriter> fw;
+    fw.reset( new FitsWriter( fqueue, acc_filename, nthreads, compress ) );
+    fw->save_meta( cards );
+    
+    int frame_count(0);
+    int file_count(0);
+    broadcast( "state", "OK state burst" );
+    while( frame_count < nframes ) {
+        string this_fn = make_filename( filename_template, file_count, frame_count );
+        int nf = std::min<int>( nframes-frame_count, frames_per_file );
+        fw->save( this_fn, first_frame, nf );
+        file_count++;
+        frame_count += frames_per_file;
+    }
+    broadcast( "state", "OK state ready" );
 
 }
 
@@ -1060,13 +1043,14 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
 //                 make_sh_mask();
                 replyStr = boost::str( boost::format("OK cell %d %d %d") % cid % x % y );
             } else if( what == "fits" ) {
-                extra_meta.observer = popword( line, "," );
-                extra_meta.target = popword( line, ", " );
-                extra_meta.date_obs = popword( line, ", " );
-                extra_meta.compress = pop<int>( line, ", " );
-                extra_meta.comments = popword(line);
-                extra_meta.last_frame = 0;
-                replyStr = "OK fits " + (string)extra_meta;
+                gui_info.observer = popword( line, "," );
+                gui_info.target = popword( line, ", " );
+                gui_info.date_obs = popword( line, ", " );
+                gui_info.compress = pop<int>( line, ", " );
+                gui_info.comments = popword(line);
+                gui_info.last_frame = 0;
+                gui_info.use = true;
+                replyStr = "OK fits " + (string)gui_info;
             } else if( what == "threads" ) {
                 int nT = pop<int>( line );
                 setThreads( nT );
@@ -1198,12 +1182,36 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         int scannum = line.empty() ? -1 : pop<int>( line );
         long framenum = line.empty() ? -1 : pop<int>( line );
         string statestr = popword(line);
-        ioService.post( bind(&Daemon::save_burst, this, bcount, scannum, framenum, statestr) );
+        bool compress = false;
+        string filename = make_filename( scannum, framenum, statestr );
+        string acc_name = "";
+        if( bcount < 0 ) {  // do accumulation
+            bcount = std::abs(bcount);
+            std::swap( filename, acc_name );
+        }
+        if( gui_info.use ) {
+            compress = gui_info.compress;
+        }
+        ioService.post( bind(&Daemon::save_fits, this, filename, bcount, bcount, compress, 0, acc_name) );
+    } else if ( command == "save" ) {
+        int n_frames = pop<int>( line );
+        int frames_per_file = line.empty() ? 20 : pop<int>( line );
+        string filename = "%DATE%/data/%TIME%/wfwfs_%FRAMENUMBER%.fits";
+        string acc_name = "";
+        if( n_frames < 0 ) {  // do accumulation
+            n_frames = std::abs(n_frames);
+            std::swap( filename, acc_name );
+        }
+        save_fits(  make_filename(filename,-1,-1), n_frames, frames_per_file, true, 0,  make_filename(acc_name,-1,-1) );
+        replyStr = "OK save";
     } else if(command == "dark") {
+        //darkburst( pop<int>( line ) );
         darkburst( pop<int>( line ) );
+        replyStr = "OK dark";
     } else if(command == "flat") {
         //flatburst( pop<int>( line ) );
-        ioService.post( bind( &Daemon::flatburst, this, pop<int>( line ) ) );
+        flatburst( pop<int>( line ) );
+        replyStr = "OK flat";
     } else if( command == "light" ) {
         string state = popword( line );
         if( state == "on" ) {
@@ -1533,31 +1541,26 @@ void Daemon::updateCalibID( void ) {
 }
 
 
-void Daemon::makeHdr( std::shared_ptr<Fits>& hdr ) {
+void Daemon::makeMeta( vector<string>& cards ) {
     
-    if( !hdr ) {
-        hdr.reset( new Fits() );
-    }
-    
-    vector<string>& cards = hdr->primaryHDU.cards;
-
+    cards.clear();
     cards.insert( cards.end(), meta_cards.begin(), meta_cards.end() );      // copy meta cards.
 
     // update/add some (maybe) modified values
-    if( !extra_meta.observer.empty() ) Fits::updateCard( cards, Fits::makeCard( "OBSERVER", extra_meta.observer ) );
-    if( !extra_meta.target.empty() ) Fits::updateCard( cards, Fits::makeCard( "OBJECT", extra_meta.target ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATAMIN", 0 ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATAMAX", (1<<fqueue.depth)-1 ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "XPOSURE", cam->get_exposure(), "[s] Exposure time" ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DETGAIN", cam->get_gain(), "[dB] or camera specific unit" ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "CADENCE", cam->get_interval(), "[s]" ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DETOFFS", 0, "[counts] or camera specific unit" ) );
+    if( !gui_info.observer.empty() ) Fits::updateCard( cards, Fits::makeCard( "OBSERVER", gui_info.observer ) );
+    if( !gui_info.target.empty() ) Fits::updateCard( cards, Fits::makeCard( "OBJECT", gui_info.target ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATAMIN", 0 ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATAMAX", (1<<fqueue.depth)-1 ) );
+    Fits::updateCard( cards, Fits::makeCard( "XPOSURE", cam->get_exposure(), "[s] Exposure time" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DETGAIN", cam->get_gain(), "[dB] or camera specific unit" ) );
+    Fits::updateCard( cards, Fits::makeCard( "CADENCE", cam->get_interval(), "[s]" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DETOFFS", 0, "[counts] or camera specific unit" ) );
     float temp = cam->get_temp();
     if( isfinite(temp) ) {
-        Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DETTEMP", temp,"[C] Current temperature of the detector" ) );
+        Fits::updateCard( cards, Fits::makeCard( "DETTEMP", temp,"[C] Current temperature of the detector" ) );
     }
 
-    string comments = extra_meta.comments;
+    string comments = gui_info.comments;
     while( !comments.empty() ) {
         string comment = popword( comments, ";" );
         if( !comment.empty() ) {
@@ -1565,7 +1568,7 @@ void Daemon::makeHdr( std::shared_ptr<Fits>& hdr ) {
         }
     }
 
-//     Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "FIELD", "name" ) );
+//     Fits::updateCard( cards, Fits::makeCard( "FIELD", "name" ) );
 
 }
 
@@ -1599,12 +1602,7 @@ void Daemon::do_accumulation( Array<float>& out, Array<uint32_t>& acc, string fn
     
     bfs::path fnPath(fn);
     bfs::path dirPath = fnPath.parent_path( );
-    if( !dirPath.empty() && !bfs::exists(dirPath) ) {
-        if( !bfs::create_directories(dirPath) ) {
-            cerr << boost::format( "failed to create directory for output: %s" ) % dirPath << endl;
-            return;
-        }
-    }
+    maybeCreateDir( dirPath );
     
     bpx::ptime beg_time = bpx::microsec_clock::universal_time();
     
@@ -1622,7 +1620,11 @@ void Daemon::do_accumulation( Array<float>& out, Array<uint32_t>& acc, string fn
     if( pos != string::npos ) timestamp_s = timestamp.substr(0,pos);
     
     shared_ptr<Fits> hdr;
-    makeHdr(hdr);
+    if( !hdr ) {
+        hdr.reset( new Fits() );
+    }
+    vector<string>& cards = hdr->primaryHDU.cards;
+    makeMeta(cards);
     
     int datamax = (1<<fqueue.depth)-1;
     float exp_time = cam->get_exposure();
@@ -1631,9 +1633,9 @@ void Daemon::do_accumulation( Array<float>& out, Array<uint32_t>& acc, string fn
     int w = fqueue.width;
     
     
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE-OBS", timestamp_s ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE", timestamp ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE-BEG", timestamp, "Start time of summed observations" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATE-OBS", timestamp_s ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATE", timestamp ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATE-BEG", timestamp, "Start time of summed observations" ) );
     
     int cnt = fut.get();     // sync-point, efter this the accumulation is completed.
     
@@ -1641,16 +1643,16 @@ void Daemon::do_accumulation( Array<float>& out, Array<uint32_t>& acc, string fn
     timestamp = to_iso_extended_string(end_time);
     bpx::time_duration elapsed = (end_time - beg_time);
     end_time = beg_time + elapsed/2;
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(end_time), "Average time of summed observations" ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "DATE-END", timestamp, "End time of summed observations" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(end_time), "Average time of summed observations" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATE-END", timestamp, "End time of summed observations" ) );
     
     out = acc;
     out /= cnt;
 
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "FILENAME", fnPath.filename().string() ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "XPOSURE", cnt*exp_time, "[s] Total exposure time" ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "TEXPOSUR", exp_time, "[s] Single exposure time" ) );
-    Fits::updateCard( hdr->primaryHDU.cards, Fits::makeCard( "NSUMEXP", cnt, "Number of summed exposures" ) );
+    Fits::updateCard( cards, Fits::makeCard( "FILENAME", fnPath.filename().string() ) );
+    Fits::updateCard( cards, Fits::makeCard( "XPOSURE", cnt*exp_time, "[s] Total exposure time" ) );
+    Fits::updateCard( cards, Fits::makeCard( "TEXPOSUR", exp_time, "[s] Single exposure time" ) );
+    Fits::updateCard( cards, Fits::makeCard( "NSUMEXP", cnt, "Number of summed exposures" ) );
     
     Fits::write( fn, out, hdr );
             
@@ -1677,19 +1679,12 @@ void Daemon::do_accumulation( Array<float>& out, Array<uint32_t>& acc, string fn
 
 void Daemon::darkburst( size_t n ) {
     
-    Array<uint32_t> acc( fqueue.height, fqueue.width );
-    
-    bpx::ptime timestamp = bpx::second_clock::universal_time();
-    string date = to_iso_extended_string( timestamp.date() );
-    string datetime = to_iso_extended_string( timestamp );
+    string filename = "calib/%DATE%/darks/%TIME%/dark_%FRAMENUMBER%.fits";
+    string acc_name = "calib/%DATE%/dark_%TIME%.fits";
 
-    bfs::path tmpFN( outputdir );
-    tmpFN /= "calib/";
-    tmpFN /= date;
-    tmpFN /= "dark_"+datetime+".fits";
+    save_fits( make_filename(filename,-1,-1), n, 20, true, 0, make_filename(acc_name,-1,-1) );
     
-    do_accumulation( dd, acc, tmpFN.string(), n );
-    
+    load_calibs( outputdir+"/calib/" );
     load_dark(-1);
     
 }
@@ -1697,19 +1692,12 @@ void Daemon::darkburst( size_t n ) {
 
 void Daemon::flatburst( size_t n ) {
     
-    Array<uint32_t> acc( fqueue.height, fqueue.width );
+    string filename = "calib/%DATE%/flats/%TIME%/flat_%FRAMENUMBER%.fits";
+    string acc_name = "calib/%DATE%/flat_%TIME%.fits";
     
-    bpx::ptime timestamp = bpx::second_clock::universal_time();
-    string date = to_iso_extended_string( timestamp.date() );
-    string datetime = to_iso_extended_string( timestamp );
-
-    bfs::path tmpFN( outputdir );
-    tmpFN /= "calib/";
-    tmpFN /= date;
-    tmpFN /= "flat_"+datetime+".fits";
+    save_fits( make_filename(filename,-1,-1), n, 20, true, 0, make_filename(acc_name,-1,-1) );
     
-    do_accumulation( ff, acc, tmpFN.string(), n );
- 
+    load_calibs( outputdir+"/calib/" );
     load_flat(-1);
     
 }
