@@ -94,11 +94,12 @@ FitsWriter::FitsWriter( FrameQueue& FQ, const string& afn, int nT, bool compress
 
     bytes_per_pixel = (fq.depth-1)/8 + 1;
     frame_count = 0;
+
     if( !acc_filename.empty() ) {
         bfs::path fnPath( acc_filename );
         bfs::path dirPath = fnPath.parent_path();
         maybeCreateDir( dirPath );
-        if( !dirPath.empty() && !bfs::exists(dirPath) ) {
+        if( !dirPath.empty() && bfs::exists(dirPath) ) {
             do_acc = true;
             acc.resize( fq.height, fq.width );
             acc.zero();
