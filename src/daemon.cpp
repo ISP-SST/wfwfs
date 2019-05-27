@@ -58,6 +58,10 @@ using boost::algorithm::iequals;
 using namespace wfwfs;
 using namespace std;
 
+mutex Daemon::globalMutex;
+map<TcpConnection::Ptr, set<string>, PtrCompare<TcpConnection>> Daemon::subscriptions;
+
+
 namespace {
     
     const set<string> auto_subscribe = { "exposure", "gain", "interval", "mode", "state" };
@@ -286,11 +290,30 @@ namespace {
 */
     }
     
+    Daemon* currentD(nullptr);
+    
+}
+
+
+Daemon& Daemon::get( void ) {
+    
+    lock_guard<mutex> lock( globalMutex );
+    return *currentD;
+    
+}
+
+
+void Daemon::set( Daemon* d ) {
+    
+    lock_guard<mutex> lock( globalMutex );
+    currentD = d;
     
 }
 
 
 Daemon::Daemon( bpo::variables_map& vm ) : Application( vm, LOOP ), settings( vm ), has_light(false), timer( ioService ), ddPtr(nullptr), ggPtr(nullptr) {
+    
+    set( this );
     
     uint16_t nT = settings["threads"].as<uint16_t>();
     if( nT ) {
@@ -317,7 +340,7 @@ Daemon::Daemon( bpo::variables_map& vm ) : Application( vm, LOOP ), settings( vm
         stop();
         throw;
     }
-   
+    
 
 }
 
@@ -1261,8 +1284,20 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         }
         replyStr = "OK shift " + seeing.shift_cells( s, id );
         seeing.draw_cells( cell_mask );
+    } else if( command == "sub") {
+        string tag = popword( line );
+        if( !tag.empty() ) subscribe( conn, tag );
+        replyStr = "OK sub " + tag;
+    } else if( command == "unsub") {
+        string tag = popword( line );
+        unsubscribe( conn, tag );
+        replyStr = "OK unsub " + tag;
+    } else if( command == "broadcast") {
+        string tag = popword( line );
+        string msg = popword( line );
+        broadcast( tag, msg );
+        replyStr = "OK broadcast " + tag + " " + msg;
     } else {  // unrecognized
-
         if( !command.empty() ) replyStr = "Huh?";
     }
 
@@ -1329,10 +1364,7 @@ void Daemon::removeConnection( TcpConnection::Ptr conn ) {
     if( connit != connections.end() ) {
         connections.erase( connit );
     }
-    auto subsit = subscriptions.find(conn);
-    if( subsit != subscriptions.end() ) {
-        subscriptions.erase( subsit );
-    }
+    unsubscribe( conn );
     conn->setErrorCallback(nullptr);
     conn->setCallback(nullptr);
     conn->socket().close();
@@ -1340,10 +1372,10 @@ void Daemon::removeConnection( TcpConnection::Ptr conn ) {
 }
 
 
-void Daemon::subscribe( const TcpConnection::Ptr& conn, string tag ) {
+void Daemon::subscribe( const TcpConnection::Ptr& conn, std::string tag ) {
     
-    lock_guard<mutex> lock( connMutex );
-    set<string>& subs = subscriptions[conn];
+    lock_guard<mutex> lock( globalMutex );
+    auto& subs = subscriptions[conn];
     auto ret = subs.insert( tag );
     if( ret.second ) {
 //        cout  << "subscribe: " << __LINE__ << "  conn: " << (void*)conn.get() << "  tag: \"" << tag << "\"   current:" <<printArray( subs, " subs" ) << endl;
@@ -1353,8 +1385,16 @@ void Daemon::subscribe( const TcpConnection::Ptr& conn, string tag ) {
 
 void Daemon::unsubscribe( const TcpConnection::Ptr& conn, std::string tag ) {
     
-    lock_guard<mutex> lock( connMutex );
-    set<string>& subs = subscriptions[conn];
+    lock_guard<mutex> lock( globalMutex );
+    auto subsit = subscriptions.find(conn);
+    if( subsit != subscriptions.end() ) {
+        if( tag.empty() ) {
+            subscriptions.erase( subsit );
+        } else {
+            subsit->second.erase(tag);
+        }
+    }
+    auto& subs = subscriptions[conn];
     subs.erase( tag );
     
 }
@@ -1362,7 +1402,7 @@ void Daemon::unsubscribe( const TcpConnection::Ptr& conn, std::string tag ) {
 
 void Daemon::broadcast( std::string tag, std::string message, TcpConnection::Ptr skip ) {
     
-    lock_guard<mutex> lock( connMutex );
+    lock_guard<mutex> lock( globalMutex );
     for( auto it: subscriptions ) {
         if( it.first.get() == skip.get() ) continue;
         if( it.second.count( tag ) ) {

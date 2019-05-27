@@ -67,8 +67,12 @@ namespace wfwfs {
         void restart(void);
         void stop(void);
         
+        static Daemon& get( void );
+        static void broadcast( std::string tag, std::string message, TcpConnection::Ptr skip=TcpConnection::Ptr() );
     private:
 
+        static void set( Daemon* );
+        
         void init(void);
         //void init_cells( const std::vector<PointI>& );
         void parsePropertyTree( boost::property_tree::ptree& );
@@ -97,9 +101,8 @@ namespace wfwfs {
         void addConnection(const Host&, TcpConnection::Ptr&);
         void removeConnection(TcpConnection::Ptr);
 
-        void subscribe( const TcpConnection::Ptr& conn, std::string tag );
-        void unsubscribe( const TcpConnection::Ptr& conn, std::string tag );
-        void broadcast( std::string tag, std::string message, TcpConnection::Ptr skip=TcpConnection::Ptr() );
+        static void subscribe( const TcpConnection::Ptr& conn, std::string tag );
+        static void unsubscribe( const TcpConnection::Ptr& conn, std::string tag="" );
         
         void start_cam( void );
         void stop_cam( void );
@@ -140,7 +143,9 @@ namespace wfwfs {
         std::mutex connMutex;
 
         std::map< TcpConnection::Ptr, Host, PtrCompare<TcpConnection>> connections;
-        std::map< TcpConnection::Ptr, std::set<std::string>, PtrCompare<TcpConnection>> subscriptions;
+        
+        static std::mutex globalMutex;
+        static std::map< TcpConnection::Ptr, std::set<std::string>, PtrCompare<TcpConnection> > subscriptions;
         
         boost::asio::io_service ioService;
         boost::thread_group pool;
