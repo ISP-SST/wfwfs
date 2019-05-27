@@ -115,17 +115,17 @@ void FrameQueue::queue( Frame& f ) {
 size_t FrameQueue::getNearestID( const bpx::ptime& timestamp ) {
     
     size_t nearestID(0);                                // 0 will translate to getting latest frame in the queue.
-    bpx::time_duration smallest_difference(24,0,0,0);   // initialize to something large (24-hours)
+    uint64_t min_diff = std::numeric_limits<uint64_t>::max();    // initialize to something large
     
     unique_lock<mutex> lock( mtx );
     
     for( const auto& fp: frames_by_id ) {
         bpx::time_duration diff( timestamp - fp.second.timestamp );
-        if( diff.is_negative() ) diff.invert_sign();
-        if( nearestID && (diff > smallest_difference) ) { // we passed the minimum since frames_by_id is sequential
+        uint64_t diff_u = std::abs( diff.total_microseconds() );
+        if( nearestID && (diff_u > min_diff) ) { // we passed the minimum since frames_by_id is sequential
             break;
-        } else if( diff < smallest_difference ) {
-            smallest_difference = diff;
+        } else if( diff_u < min_diff ) {
+            min_diff = diff_u;
             nearestID = fp.first;
         }
     }
