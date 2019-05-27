@@ -30,6 +30,7 @@
 
 using namespace wfwfs;
 using namespace std;
+using namespace std::chrono;
 
 namespace bpx = boost::posix_time;
 
@@ -42,9 +43,9 @@ namespace {
 }
 
 
-DimmSet::DimmSet(size_t i) : id(i), ref_cell_size(64), cell_size(76), subcell_size(0),
-                             max_shift(6), ref_cell(-1), cadence(5), duration(5),
-                             running_average(20.0), min_lock(0.0),
+DimmSet::DimmSet(size_t i) : id(i), running(false), ref_cell_size(64), cell_size(76), subcell_size(0),
+                             max_shift(6), ref_cell(-1), interval(1), duration(2),
+                             running_average(20.0), min_lock(0.1),
                              last_dimm(bpx::not_a_date_time),
                              last_r0(bpx::not_a_date_time) {
 
@@ -54,7 +55,7 @@ DimmSet::DimmSet(size_t i) : id(i), ref_cell_size(64), cell_size(76), subcell_si
 
 
 DimmSet::DimmSet( const DimmSet& rhs ) : id(rhs.id),
-                                    name(rhs.name),
+                                    name(rhs.name), running(rhs.running), 
                                     cells(rhs.cells),
                                     subcells(rhs.subcells),
                                     avg_shifts(rhs.avg_shifts),
@@ -63,7 +64,7 @@ DimmSet::DimmSet( const DimmSet& rhs ) : id(rhs.id),
                                     subcell_size(rhs.subcell_size),
                                     max_shift(rhs.max_shift),
                                     ref_cell(rhs.ref_cell),
-                                    cadence(rhs.cadence),
+                                    interval(rhs.interval),
                                     duration(rhs.duration),
                                     running_average(rhs.running_average),
                                     min_lock(rhs.min_lock),
@@ -77,7 +78,7 @@ DimmSet::DimmSet( const DimmSet& rhs ) : id(rhs.id),
 
 
 DimmSet::DimmSet( DimmSet&& rhs ) : id(rhs.id),
-                                    name(std::move(rhs.name)),
+                                    name(std::move(rhs.name)), running(rhs.running), 
                                     cells(std::move(rhs.cells)),
                                     subcells(std::move(rhs.subcells)),
                                     avg_shifts(std::move(rhs.avg_shifts)),
@@ -86,7 +87,7 @@ DimmSet::DimmSet( DimmSet&& rhs ) : id(rhs.id),
                                     subcell_size(rhs.subcell_size),
                                     max_shift(rhs.max_shift),
                                     ref_cell(rhs.ref_cell),
-                                    cadence(rhs.cadence),
+                                    interval(rhs.interval),
                                     duration(rhs.duration),
                                     running_average(rhs.running_average),
                                     min_lock(rhs.min_lock),
@@ -149,10 +150,10 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     max_shift = cfg_ptree.get<uint8_t>( "max_shift", max_shift );
     cell_size = ref_cell_size + 2*max_shift;
     
-    cadence = cfg_ptree.get<uint16_t>( "cadence", cadence );
+    interval = std::max<uint16_t>( 1, cfg_ptree.get<uint16_t>( "interval", interval ) );
     duration = cfg_ptree.get<uint16_t>( "duration", duration );
     running_average = cfg_ptree.get<float>( "running_average", running_average );
-    min_lock = cfg_ptree.get<float>( "min_lock", 0.0 );
+    min_lock = cfg_ptree.get<float>( "min_lock", min_lock );
 
     ref_cell = cfg_ptree.get<size_t>( "ref_cell", ref_cell );
     
@@ -276,7 +277,6 @@ void DimmSet::zero_avgs( void ) {
 }
 
 
-
 void DimmSet::set_ravg( float r ) {
     
     running_average = r;
@@ -290,7 +290,7 @@ void DimmSet::add_frame_data( bpx::ptime ts, dimm_data_t buf, size_t offset ) {
     frame_data.push_back( {ts, buf, offset} );
     
     if( last_r0.is_not_a_date_time() ) {    // force wait until we have enough data
-        last_r0 = ts + bpx::time_duration( 0, 0, duration-cadence, 0 );
+        last_r0 = ts + bpx::time_duration( 0, 0, duration-interval, 0 );
     }
     
 }
@@ -378,11 +378,13 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
 void DimmSet::calculate_dim( boost::posix_time::ptime ts, const map<int,PointF>& shifts, const PointI& ij ) {
 
     pair_info& pi = differential_motion[ ij ];
-    // The DIMM method is only valid for distances larger than approximately 2x the subaperture diameter.
-    if( pi.separation < 2*Seeing::diam_px ) return;
-    if( false && (pi.diff.min_abs() > 0.1*pi.diff.max_abs()) ) {    // NOTE: this is just to mimic the AO code, i.e. only allow the "almost" horizontal/vertical pairs
+    if( pi.separation < 2*Seeing::diam_px ) {
+        // The DIMM method is only valid for distances larger than approximately twice the subaperture diameter,
+        // so we don't accept any pair closer together than that.
+        //differential_motion.erase( ij );
         return;
     }
+    
     const PointD avg_ji = avg_shifts[ij.x] - avg_shifts[ij.y];
     try {
         PointD differential_shift = avg_ji + shifts.at(ij.y) - shifts.at(ij.x);
@@ -438,30 +440,41 @@ void DimmSet::calculate_dims( void ) {
 
 
 void DimmSet::calculate_r0( void ) {
-
-    lock_guard<mutex> lock( mtx );
-
-    bpx::ptime next = last_r0 + bpx::time_duration( 0, 0, cadence, 0 );
     
-    if( last_r0.is_not_a_date_time() || last_dimm >= next ) {
-        PointF this_r0 = calculate_r0( last_dimm, duration );
-        last_r0 = last_dimm;
-        r0[ last_dimm ] = this_r0;
-        cout << to_time_t(last_r0) << " " << ((this_r0.x+this_r0.y)/2) << " " << this_r0.x << " " << this_r0.y << endl;
-        
+    bpx::ptime timestamp = bpx::not_a_date_time;
+    {
+        lock_guard<mutex> lock( mtx );
+        if( !r0.empty() ) {
+            timestamp = r0.rbegin()->first + bpx::time_duration( 0, 0, interval, 0 );
+            if( !timestamp.is_not_a_date_time() && (timestamp > bpx::microsec_clock::universal_time()) ) {   // in the future, don't process yet.
+                return;
+            }
+        }
+    }
+    PointF this_r0 = calculate_r0( timestamp );
+    if( !timestamp.is_not_a_date_time() ) {
+        lock_guard<mutex> lock( mtx );
+        r0[ timestamp ] = this_r0;
+        last_r0 = timestamp;
     }
 }
 
 
-PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur, float ml ) {
+PointD DimmSet::calculate_r0( bpx::ptime& out ) {
 
+    PointD r0_sum(0,0);
+    bpx::ptime end = out;
     if( end.is_not_a_date_time() ) {
-        end = bpx::microsec_clock::universal_time();
+        end = bpx::microsec_clock::universal_time();    // set cutoff-time to now.
     }
-    bpx::ptime begin = end - bpx::time_duration( 0, 0, dur, 0 );
+    
+    if( interval == 0 ) {
+        return r0_sum;
+    }
+    bpx::ptime begin = end - bpx::time_duration( 0, 0, interval, 0 );
     
 #ifdef PRINT_DEBUG
-    cout << "calculate_r0:    " << __LINE__ << "  dur = " << dur << "\nTime: " << to_simple_string(begin) << "  -> " << to_simple_string(end) << endl;
+    cout << "calculate_r0:    " << __LINE__ << "  " << name << "  interval = " << interval << "\nTime: " << to_simple_string(begin) << "  -> " << to_simple_string(end) << endl;
     vector<PointI> pair_ids;
     vector<size_t> pair_n;
     vector<size_t> pair_good;
@@ -469,12 +482,7 @@ PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur, float ml ) {
     vector<PointF> pair_r0;
     vector<float> pair_sep;
 #endif
-    
-    if( ml < 0.0 ) {    // min_lock not provided in call, use the local value.
-        ml = min_lock;
-    }
-    
-    PointD r0_sum(0,0);
+
     size_t nPairs(0);
     
     const PointD variance_cutoff = (2*max_shift)*(2*max_shift)/12.0;       // Take a uniform distribution over the search-space as limiting value.
@@ -482,30 +490,36 @@ PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur, float ml ) {
     
     for( auto& dm: differential_motion ) {
         auto& pi = dm.second;
+        if( pi.separation < 2*Seeing::diam_px ) continue;
         r0_cutoff += Seeing::apply_dimm_equations( variance_cutoff, pi.separation );
         // The DIMM method is only valid for distances larger than 2x the subaperture diameter.
-        if( pi.separation < 2*Seeing::diam_px ) continue;
         
         PointD variance(0,0);
         size_t nTotalData(0);
         size_t nGoodData(0);
         auto it = pi.data.rbegin();
         while( (it != pi.data.rend()) && (it->first > end) ) it++;
+        if( (it != pi.data.rend()) && (out.is_not_a_date_time() || (it->first < out)) ) {
+            // save last timestamp to output.
+            out = it->first;
+        }
         while( (it != pi.data.rend()) && (it->first > begin) ) {
             nTotalData++;
             if( it->second.ok ) {
                 variance += it->second.squared_shift;
                 nGoodData++;
+            } else {
+                variance += variance_cutoff;
             }
             it++;
         }
 
         if( !nTotalData || !nGoodData || (variance.min() <= 0.0) ) continue;        // No data available.
-        if( static_cast<double>(nGoodData)/nTotalData < ml ) continue;              // Less data than required.
+        if( static_cast<double>(nGoodData)/nTotalData < min_lock ) continue;              // Less data than required.
 
-        variance /= nGoodData;
+        variance /= nTotalData;
 
-        variance = variance.min( variance_cutoff );                           // Restrict variance to < variance_cutoff
+        variance = variance.min( variance_cutoff );                                 // Restrict total variance to < variance_cutoff
         
         PointD r0 = Seeing::apply_dimm_equations( variance, pi.separation );
 
@@ -548,6 +562,55 @@ PointD DimmSet::calculate_r0( bpx::ptime& end, uint16_t dur, float ml ) {
 }
 
 
+PointD DimmSet::get_r0( bpx::ptime end, uint16_t span ) const {
+    
+    PointD ret;
+    size_t cnt(0);
+    if( end.is_not_a_date_time() ) {
+        end = bpx::microsec_clock::universal_time();    // set cutoff-time to now.
+    }
+    bpx::ptime begin = end - bpx::time_duration( 0, 0, span, 0 );
+    {
+        lock_guard<mutex> lock( mtx );
+        auto it = r0.rbegin();
+        while( (it != r0.rend()) && (it->first > end) ) it++;
+        while( (it != r0.rend()) && (it->first > begin) ) {
+            ret += it->second;
+            cnt++;
+            it++;
+        }
+    }
+    if( cnt ) {
+        ret /= cnt;
+    }
+    
+    return ret;
+    
+}
+
+
+high_resolution_clock::time_point DimmSet::get_next_time( void ) {
+    
+    
+    bpx::ptime last_ptime = bpx::not_a_date_time;
+    high_resolution_clock::time_point next;
+    if( !r0.empty() ) {
+        last_ptime = r0.rbegin()->first;
+    }
+    if( !last_ptime.is_not_a_date_time() ) {
+        bpx::time_duration const time_since_epoch = last_ptime-boost::posix_time::from_time_t(0); 
+        next = high_resolution_clock::from_time_t( time_since_epoch.total_seconds() ); 
+        long nsec = time_since_epoch.fractional_seconds()*( 1000000000/time_since_epoch.ticks_per_second() ); 
+        next += nanoseconds(nsec);
+    } else {        // if no previous measurement is done, default to "now+interval"
+        next = high_resolution_clock::now();
+    }
+    next += seconds( interval );
+    return next;
+    
+}
+
+
 PointD DimmSet::pair_info::getShift(void) const {
     
     PointD ret;
@@ -584,4 +647,38 @@ PointD DimmSet::pair_info::getVariance( bpx::ptime begin, bpx::ptime end ) const
     
 }
 
+
+void DimmSet::start( void ) {
+    
+    {
+        lock_guard<mutex> lock( mtx );
+        if( running ) {
+            return;
+        }
+        running = true;
+    }
+    
+    check();
+    
+    trd = std::thread([&](){
+        while( running ) {
+            calculate_r0();
+            this_thread::sleep_until( get_next_time() );
+        }
+    });
+
+    
+}
+
+
+void DimmSet::stop( void ) {
+    
+    if( running ) {
+        running = false;
+        if( trd.joinable() ) {
+            trd.join();
+        }
+    }
+    
+}
 

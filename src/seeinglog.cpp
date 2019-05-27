@@ -180,7 +180,7 @@ void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
             for( size_t i(0); i<columns.size(); ++i ) {
                 for( auto& ds: dimm_sets ) {
                     if( ds.get_name() == columns[i].first ) {
-                        PointF v = ds.calculate_r0( now, columns[i].second, min_lock );
+                        PointF v = ds.get_r0( now, columns[i].second );
                         if( v.max_abs() > 0.0 ) {
                             has_finite_values = true;
                             values[i] = (v.x+v.y)/2;

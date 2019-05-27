@@ -55,6 +55,8 @@ namespace wfwfs {
         void precalculate( void );
         static PointD apply_dimm_equations( PointD var, float separation );
         
+        void start_dimms( void );
+        void stop_dimms( void );
         void start_logs( void );
         void stop_logs( void );
         void start( void );

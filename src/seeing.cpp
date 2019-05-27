@@ -237,6 +237,23 @@ PointD Seeing::apply_dimm_equations( PointD var, float separation ) {
 }
 
 
+void Seeing::start_dimms( void ) {
+    
+    for( auto& d: dimm_sets ) {
+        d.start();
+    }
+    
+}
+
+
+void Seeing::stop_dimms( void ) {
+    
+    for( auto& d: dimm_sets ) {
+        d.stop();
+    }
+    
+}
+
 void Seeing::start_logs( void ) {
     
     for( auto& l: logs ) {
@@ -257,6 +274,7 @@ void Seeing::stop_logs( void ) {
 
 void Seeing::start( void ) {
     
+    start_dimms();
     start_logs();
     
 }
@@ -265,6 +283,7 @@ void Seeing::start( void ) {
 void Seeing::stop( void ) {
     
     stop_logs();
+    stop_dimms();
     
 }
 

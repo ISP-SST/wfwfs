@@ -28,6 +28,7 @@
 #include <string>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include <boost/date_time/posix_time/posix_time.hpp>
@@ -87,20 +88,25 @@ namespace wfwfs {
         void measure_shifts( uint64_t*, double );
         PointF get_avg_shift( int i ) const { if( avg_shifts.count(i) ) return avg_shifts.at(i); return PointF(0.0); }
         const std::map<int,PointF>& get_avg_shifts( void ) const { return avg_shifts; }
-        const std::map<int,PointF> get_shifts( void ) const { if( !cell_shifts.empty() ) return cell_shifts.rbegin()->second; return  std::map<int,PointF>(); }
+        const std::map<int,PointF> get_shifts( void ) const { if( !cell_shifts.empty() ) return cell_shifts.rbegin()->second; return std::map<int,PointF>(); }
         const std::map<PointI,pair_info>& get_differential_motion( void ) const { return differential_motion; }
         void calculate_dim( boost::posix_time::ptime, const std::map<int,PointF>&, const PointI& );
         void calculate_dims( void );
         void calculate_r0( void );
-        PointD calculate_r0( boost::posix_time::ptime&, uint16_t, float min_lock=-1.0 );
+        PointD calculate_r0( boost::posix_time::ptime& );
+        PointD get_r0( boost::posix_time::ptime, uint16_t span ) const;
+        std::chrono::high_resolution_clock::time_point get_next_time( void );
         
+        void start( void );
+        void stop( void );
 
     private:
         
         const size_t id;
         std::string name;
-        std::mutex mtx;
-        
+        mutable std::mutex mtx;
+        std::thread trd;
+        bool running;
         
         std::vector<Cell> cells;
         std::vector<Cell> subcells;
@@ -111,7 +117,7 @@ namespace wfwfs {
         uint8_t max_shift;
         size_t ref_cell;
         
-        uint16_t cadence;                           // (s) How often r0 should be calculated
+        uint16_t interval;                          // (s) How often r0 should be calculated
         uint16_t duration;                          // (s) How long timespan to accumulate statistics in the r0 calculation
         float running_average;                      // (s) Timescale for the moving average of the (slowly varying) image motion for the cells
         float min_lock;                             // (fraction) Minimum lock-ratio for including a pair in r0-calculation
