@@ -28,6 +28,7 @@
 #include "dimmset.hpp"
 #include "frame.hpp"
 
+#include "autosave.hpp"
 #include "seeinglog.hpp"
 
 #include <mutex>
@@ -57,6 +58,8 @@ namespace wfwfs {
         
         void start_dimms( void );
         void stop_dimms( void );
+        void start_saves( void );
+        void stop_saves( void );
         void start_logs( void );
         void stop_logs( void );
         void start( void );
@@ -78,6 +81,7 @@ namespace wfwfs {
         std::string get_vars( int duration=0 ) const;
         
         float get_avg_intensity( void ) const { return avg_intensity; }
+        
         template <typename T>
         void draw_cell( Array<T>& img, PointI c, uint16_t cell_size, bool mark=false ) const;
         template <typename T>
@@ -106,6 +110,7 @@ namespace wfwfs {
         size_t dsID;
         float avg_intensity;                // Store current intensity, as measured within the DIMM cells (stored as a fraction of max-intensity)
 
+        std::vector<AutoSave> saves;
         std::vector<SeeingLog> logs;
         
         std::mutex mtx;

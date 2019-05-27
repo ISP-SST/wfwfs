@@ -37,7 +37,7 @@ dimm {
     ref_cell = 2
     max_shift = 10
     min_lock = 0.3
-    cadence = 1
+    interval = 1
     duration = 5
     running_average = 30
 }
@@ -50,10 +50,29 @@ dimm {
     subcell_size = 17
     max_shift = 10
     min_lock = 0.3
-    cadence = 1
-    duration = 1
+    interval = 1
+    duration = 2
     running_average = 30
     auto_adjust = 0
+}
+save {
+    name = %DATE%/data/%TIME%/wfwfs_%FILENUMBER%.fits
+    trigger = 4-corners 30
+    limit = 0.06
+    delay = -30
+    nframes = 400
+    frames_per_file = 20
+    min_interval = 300
+    poll_interval = 1
+    compress = 1
+}
+save {
+    name = calib/%DATE%/darks/%TIME%/dark_%FRAMENUMBER%.fits
+    acc_name = calib/%DATE%/dark_%TIME%.fits
+    trigger = time 04:00
+    frames_per_file = 20
+    nframes = 100
+    compress = 1
 }
 xdimm {
     name 4-corners
@@ -61,8 +80,8 @@ xdimm {
     cell_pos = 699,463,710,1611,1030,656,1356,460,1363,1606
     ref_cell = 2
     max_shift = 10
-    cadence = 1
-    duration = 1
+    interval = 1
+    duration = 2
     running_average = 10
     auto_adjust = 0
 }
@@ -75,8 +94,8 @@ xdimm {
     subcell_size = 17
     max_shift = 10
     min_lock = 0.3
-    cadence = 1
-    duration = 1
+    interval = 1
+    duration = 2
     running_average = 30
     auto_adjust = 0
 }

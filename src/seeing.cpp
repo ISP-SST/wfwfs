@@ -81,6 +81,10 @@ void Seeing::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
             SeeingLog sl;
             sl.parsePropertyTree( node.second, output_base );
             logs.push_back( std::move(sl) );
+        } else if( iequals( node.first, "SAVE" ) ) {
+            AutoSave sv;
+            sv.parsePropertyTree( node.second, output_base );
+            saves.push_back( std::move( sv ) );
         }
     }
     
@@ -254,6 +258,25 @@ void Seeing::stop_dimms( void ) {
     
 }
 
+
+void Seeing::start_saves( void ) {
+    
+    for( auto& s: saves ) {
+        s.start( dimm_sets );
+    }
+    
+}
+
+
+void Seeing::stop_saves( void ) {
+    
+    for( auto& s: saves ) {
+        s.stop();
+    }
+    
+}
+
+
 void Seeing::start_logs( void ) {
     
     for( auto& l: logs ) {
@@ -276,12 +299,14 @@ void Seeing::start( void ) {
     
     start_dimms();
     start_logs();
+    start_saves();
     
 }
 
 
 void Seeing::stop( void ) {
     
+    stop_saves();
     stop_logs();
     stop_dimms();
     

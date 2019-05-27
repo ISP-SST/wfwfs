@@ -26,32 +26,36 @@ meta {
     TELESCOP = Development - No Live images
     ORIGIN = Development
 }
-save {
-    name = %DATE%/data/%TIME%/wfwfs_%FRAME%.fits
-    trigger = r0 30
+xsave {
+    name = %DATE%/data/%TIME%/wfwfs_%FILENUMBER%.fits
+    trigger = 4-corners 30
     limit = 0.08
-    poll_interval = 10
-    frames_per_file = 20
     delay = -30
-    duration = 40
-    min_interval = 300
-    compress = 1
-}
-save {
-    name = %DATE%/flats/%TIME%/flat_%FRAME%.fits
-    acc_name = calib/%DATE%/flat_%TIME%.fits
-    trigger = turret
+    nframes = 400
     frames_per_file = 20
-    delay = 60
-    nframes = 1000
+    min_interval = 300
+    poll_interval = 3
     compress = 1
 }
-save {
-    name = %DATE%/darks/%TIME%/dark_%FRAME%.fits
+xsave {
+    name = calib/%DATE%/flats/%TIME%/flat_%FRAMENUMBER%.fits
     acc_name = calib/%DATE%/flat_%TIME%.fits
+    trigger = telnet turret 16000
+    telnet_cmd = get mode
+    telnet_reply = OK mode flat
+    poll_interval = 10
+    delay = 10
+    nframes = 1000
+    frames_per_file = 20
+    compress = 1
+    min_interval = 3600
+}
+xsave {
+    name = calib/%DATE%/darks/%TIME%/dark_%FRAMENUMBER%.fits
+    acc_name = calib/%DATE%/dark_%TIME%.fits
     trigger = time 04:00
     frames_per_file = 20
-    nframes = 1000
+    nframes = 100
     compress = 1
 }
 log {

@@ -453,6 +453,7 @@ void Daemon::init(void) {
     seeing.draw_cells( cell_mask );
     
     start_cam();
+    seeing.start_saves();
 //    seeing.start_logs();
     
 }
@@ -996,6 +997,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         } else if( what == "dimms" ) {
             seeing.start_dimms();
             replyStr = "OK start dimms";
+        } else if( what == "saves" ) {
+            seeing.start_saves();
+            replyStr = "OK start saves";
         } else if( what == "logs" ) {
             seeing.start_logs();
             replyStr = "OK start logs";
@@ -1014,6 +1018,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         } else if( what == "dimms" ) {
             seeing.stop_dimms();
             replyStr = "OK stop dimms";
+        } else if( what == "saves" ) {
+            seeing.stop_saves();
+            replyStr = "OK stop saves";
         } else if( what == "logs" ) {
             seeing.stop_logs();
             replyStr = "OK stop logs";

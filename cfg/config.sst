@@ -42,27 +42,59 @@ log {
 dimm {
     name triangle
     cell_size = 51
-    cell_pos = 530,1037,1027,747,1526,458,1528,1613
+    cell_pos = 530,1035,1027,747,1523,461,1525,1610
     ref_cell = 1
     max_shift = 10
     min_lock = 0.3
-    cadence = 1
-    duration = 5
+    interval = 1
+    duration = 2
     running_average = 30
 }
 dimm {
     name triangle_sub
     cell_size = 51
-    cell_pos = 530,1037,1027,747,1526,458,1528,1613
+    cell_pos = 530,1035,1027,747,1523,461,1525,1610
     ref_cell = 1
-    subcell_pos = -17,-17,-17,0,-17,17,0,-17,0,0,0,17,17,-17,17,0,17,17
+    subcell_pos = 0,0
     subcell_size = 17
     max_shift = 10
     min_lock = 0.3
-    cadence = 1
-    duration = 1
-    running_average = 30
+    interval = 1
+    duration = 2
+    running_average = 20
     auto_adjust = 0
+}
+save {
+    name = %DATE%/data/%TIME%/wfwfs_%FILENUMBER%.fits
+    trigger = triangle 30
+    limit = 0.08
+    delay = -30
+    nframes = 400
+    frames_per_file = 20
+    min_interval = 300
+    poll_interval = 1
+    compress = 1
+}
+save {
+    name = calib/%DATE%/flats/%TIME%/flat_%FRAMENUMBER%.fits
+    acc_name = calib/%DATE%/flat_%TIME%.fits
+    trigger = telnet turret 16000
+    telnet_cmd = get mode
+    telnet_reply = OK mode flat
+    poll_interval = 10
+    delay = 10
+    nframes = 1000
+    frames_per_file = 20
+    compress = 1
+    min_interval = 3600
+}
+save {
+    name = calib/%DATE%/darks/%TIME%/dark_%FRAMENUMBER%.fits
+    acc_name = calib/%DATE%/dark_%TIME%.fits
+    trigger = time 04:00
+    frames_per_file = 20
+    nframes = 100
+    compress = 1
 }
 xdimm {
     name 4-corners
@@ -71,8 +103,8 @@ xdimm {
     ref_cell = 2
     max_shift = 10
     min_lock = 0.3
-    cadence = 1
-    duration = 1
+    interval = 1
+    duration = 2
     running_average = 30
     auto_adjust = 0
 }
@@ -85,8 +117,8 @@ xdimm {
     subcell_size = 17
     max_shift = 10
     min_lock = 0.3
-    cadence = 1
-    duration = 1
+    interval = 1
+    duration = 2
     running_average = 30
     auto_adjust = 0
 }

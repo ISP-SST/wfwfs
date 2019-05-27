@@ -69,8 +69,13 @@ namespace wfwfs {
         
         static Daemon& get( void );
         static void broadcast( std::string tag, std::string message, TcpConnection::Ptr skip=TcpConnection::Ptr() );
+        void save_fits( std::string fn, int n_frames, uint32_t frames_per_file,
+                        bool compress=true, size_t first_frame=0, std::string acc_filename="" );
+        std::string make_filename( int, long, const std::string& state );
+        std::string make_filename( std::string, int, int );
         size_t getNearestID( const boost::posix_time::ptime& timestamp ) { return fqueue.getNearestID(timestamp); };
         void connect( TcpConnection::Ptr& conn, std::string host, std::string port );
+        
     private:
 
         static void set( Daemon* );
@@ -81,10 +86,6 @@ namespace wfwfs {
         
         void queue_frame( const uint8_t*, boost::posix_time::ptime );
         void get_frame( TcpConnection::Ptr conn, int x1, int y1, int x2, int y2, int scale=1, bool darkflat=false, size_t fsel=0, bool do_histo=false );
-        std::string make_filename( int, long, const std::string& state );
-        std::string make_filename( std::string, int, int );
-        void save_fits( std::string fn, int n_frames, uint32_t frames_per_file,
-                        bool compress=true, size_t first_frame=0, std::string acc_filename="" );
 
         template <typename T> void df_cell( Frame& f, Cell& c );
         void copy_cell_data( Frame& f );
