@@ -993,6 +993,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         if( what == "cam" ) {
             start_cam();
             replyStr = "OK start cam";
+        } else if( what == "dimms" ) {
+            seeing.start_dimms();
+            replyStr = "OK start dimms";
         } else if( what == "logs" ) {
             seeing.start_logs();
             replyStr = "OK start logs";
@@ -1008,6 +1011,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         if( what == "cam" ) {
             stop_cam();
             replyStr = "OK stop cam";
+        } else if( what == "dimms" ) {
+            seeing.stop_dimms();
+            replyStr = "OK stop dimms";
         } else if( what == "logs" ) {
             seeing.stop_logs();
             replyStr = "OK stop logs";
@@ -1428,9 +1434,11 @@ void Daemon::light( bool state ) {
     if( has_light != state ) {
         if( state ) {
             seeing.zero_avgs();
+            seeing.start_dimms();
             seeing.start_logs();
         } else {
             seeing.stop_logs();
+            seeing.stop_dimms();
         }
         has_light = state;
     }
