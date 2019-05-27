@@ -22,6 +22,7 @@
  ***************************************************************************/
 #include "seeinglog.hpp"
 
+#include "daemon.hpp"
 #include "seeing.hpp"
 
 #include <boost/filesystem.hpp>
@@ -142,13 +143,20 @@ void SeeingLog::addColumns( std::string line ) {
 
 void SeeingLog::printHeader( void ) {
     
-    *this << "#  Seeing measurements" << endl;
-    *this << "#  Date: " << to_iso_extended_string( timestamp.date() ) << endl;
-    *this << "#  Log interval: " << interval << "s" << endl;
-    *this << "#  Columns: timestamp";
-    for( auto& c: columns ) *this << "  \"" << c.first << "\" (" << c.second << "s average)";
-    *this << endl;
-    
+    string msg = "#  Real-time seeing measurements\n";
+    msg += "#  Path: " + dir + "\n";
+    msg += "#  Filename: " + name + "\n";
+    msg += "#  Date: " + to_iso_extended_string( timestamp.date() ) + "\n";
+    msg += "#  Log interval: " + to_string(interval) + " seconds\n";
+    msg += "#  Columns: timestamp";
+    for( auto& c: columns ) {
+        msg += "  \"" + c.first + "\" (" + to_string(c.second) + "s average)";
+    }
+    msg += "\n";
+    *this << msg;
+    ofstream::flush();
+    Daemon::broadcast( name, msg );
+
 }
 
 
@@ -206,6 +214,7 @@ void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
 
                 *this << log_line << endl;
                 ofstream::flush();
+                Daemon::broadcast( name, log_line );
             }
             
             this_thread::sleep_until( next );
