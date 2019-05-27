@@ -27,7 +27,7 @@ meta {
     ORIGIN = Development
 }
 xsave {
-    name = %DATE%/data/%TIME%/wfwfs_%FILENUMBER%.fits
+    name = %DATE%/data/%TIME%/wfwfs_%FRAMENUMBER%.fits
     trigger = 4-corners 30
     limit = 0.08
     delay = -30
@@ -63,7 +63,7 @@ log {
     interval = 1
     min_lock = 0.3
     xcolumns = 4-corners triangle 4-corners 2 triangle 2 4-corners 10 4-corners_sub 4-corners_sub 2 4-corners_sub 10
-    columns = 4-corners 4-corners 5 4-corners 180 triangle triangle 5 triangle 180
+    columns = 4-corners 5 4-corners 30 4-corners 180 triangle triangle 5 triangle 180
 }
 dimm {
     name 4-corners

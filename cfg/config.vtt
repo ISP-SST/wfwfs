@@ -28,7 +28,7 @@ log {
     name = wfwfs_r0
     min_lock = 0.3
     interval = 1
-    columns = triangle 2 triangle 5 triangle 180 triangle_sub 2 triangle_sub 5 triangle_sub 180
+    columns = triangle 5 triangle 30 triangle 180 triangle_sub 5 triangle_sub 30 triangle_sub 180
 }
 dimm {
     name triangle
@@ -56,7 +56,7 @@ dimm {
     auto_adjust = 0
 }
 save {
-    name = %DATE%/data/%TIME%/wfwfs_%FILENUMBER%.fits
+    name = %DATE%/data/%TIME%/wfwfs_%FRAMENUMBER%.fits
     trigger = 4-corners 30
     limit = 0.06
     delay = -30
