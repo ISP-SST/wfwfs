@@ -69,6 +69,8 @@ namespace wfwfs {
         
         static Daemon& get( void );
         static void broadcast( std::string tag, std::string message, TcpConnection::Ptr skip=TcpConnection::Ptr() );
+        size_t getNearestID( const boost::posix_time::ptime& timestamp ) { return fqueue.getNearestID(timestamp); };
+        void connect( TcpConnection::Ptr& conn, std::string host, std::string port );
     private:
 
         static void set( Daemon* );
@@ -92,7 +94,6 @@ namespace wfwfs {
         bool doWork(void);
         void setThreads( int nThreads );
         
-        void connect( Host& host, TcpConnection::Ptr& conn );
         
         void connected( TcpConnection::Ptr );
         void onMessage( TcpConnection::Ptr );

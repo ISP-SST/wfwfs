@@ -880,62 +880,38 @@ void Daemon::setThreads( int nT ) {
 }
 
 
-void Daemon::connect( Host& host, TcpConnection::Ptr& conn ) {
+void Daemon::connect( TcpConnection::Ptr& conn, string host, string port ) {
     
-//     if( host.connectName.empty() ) {
-//         cerr << "Attempting to connect without a hostname." << endl;
-//         return;
-//     }
-//     
-//     if( !conn ) {
-//         conn = TcpConnection::newPtr( ioService );
-//     }
-//     
-//     try {
-//         auto test WFWFS_UNUSED = conn->socket().remote_endpoint();  // check if endpoint exists, will throw if not connected.
-//         return;
-//     } catch ( ... ) {
-//         // if we get here the socket is disconnected, continue to reconnect below.
-//     }
-//     
-//     if( conn->socket().is_open() ) {
-//         conn->socket().close();
-//     }
-// 
-// #ifdef DEBUG_
-//     cout << "Attempting to connect to " << host.connectName << ":" << host.connectPort << endl;
-// #endif
-//     
-//     try {
-//         conn->connect( host.connectName, to_string(host.connectPort) );
-//         if( conn->socket().is_open() ) {
-// 
-//             Command cmd;
-// 
-//             myInfo.info.peerType |= Host::TP_WORKER;
-//             *conn << CMD_CONNECT;
-//             *conn >> cmd;
-//             if( cmd == CMD_AUTH ) {
-//                 // implement
-//             }
-//             if( cmd == CMD_CFG ) {  // handshake requested
-//                 *conn << myInfo.info;
-//                 *conn >> host;
-//                 *conn >> cmd;       // ok or err
-//             }
-//             if( cmd != CMD_OK ) {
-//                 cerr << "Handshake with master failed  (server replied: " << cmd << ")" << endl;
-//                 conn->socket().close();
-//                 //myInfo.info.peerType &= ~Host::TP_WORKER;
-//             }
-//         }
-// 
-//     } catch ( const std::exception& e ) {
-//         cerr << "Failed to connect to " << host.connectName << ":" << host.connectPort
-//                 << "  reason:" << e.what() << endl;
-//     } catch ( ... ) {
-//         cerr << "Unhandled exception when connecting: " << __LINE__ << endl;
-//     }
+
+    if( !conn ) {
+        conn = TcpConnection::newPtr( ioService );
+    }
+    
+    try {
+        auto test WFWFS_UNUSED = conn->socket().remote_endpoint();  // check if endpoint exists, will throw if not connected.
+        return;
+    } catch ( ... ) {
+        // if we get here the socket is disconnected, continue to reconnect below.
+    }
+    
+    if( conn->socket().is_open() ) {
+        conn->socket().close();
+    }
+
+#ifdef DEBUG_
+    cout << "Attempting to connect to " << host << ":" << port << endl;
+#endif
+    
+    try {
+        conn->connect( host, port );
+
+    } catch ( const std::exception& e ) {
+        cerr << "Failed to connect to " << host << ":" << port
+                << "  reason:" << e.what() << endl;
+    } catch ( ... ) {
+        cerr << "Unhandled exception when connecting: " << __LINE__ << endl;
+    }
+    
 }
 
 
