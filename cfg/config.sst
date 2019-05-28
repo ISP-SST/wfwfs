@@ -48,7 +48,7 @@ dimm {
     min_lock = 0.3
     interval = 1
     duration = 2
-    running_average = 30
+    running_average = 20
 }
 dimm {
     name triangle_sub

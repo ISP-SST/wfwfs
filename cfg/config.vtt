@@ -36,23 +36,23 @@ dimm {
     cell_pos = 699,463,710,1611,1030,656,1682,1035
     ref_cell = 2
     max_shift = 10
-    min_lock = 0.3
+    min_lock = 0.2
     interval = 1
     duration = 5
-    running_average = 30
+    running_average = 20
 }
 dimm {
     name triangle_sub
     cell_size = 51
     cell_pos = 699,463,710,1611,1030,656,1682,1035
     ref_cell = 2
-    subcell_pos = -17,-17,-17,0,-17,17,0,-17,0,0,0,17,17,-17,17,0,17,17
+    subcell_pos = 0,0
     subcell_size = 17
     max_shift = 10
-    min_lock = 0.3
+    min_lock = 0.2
     interval = 1
     duration = 2
-    running_average = 30
+    running_average = 20
     auto_adjust = 0
 }
 save {
