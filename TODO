@@ -1,6 +1,3 @@
- * auto-flat/dark when light is blocked or turret is in flat-field mode
  * binning
- * tool for calibrating/finding cell-locations
  * options to select N cells with best contrast
- * compression
  

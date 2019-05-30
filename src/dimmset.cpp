@@ -355,10 +355,8 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
                     }
                     PointF subcell_delta;
                     bool ok = sads( subRefPtr, subcell_size, cell_size, subcellPtr, scSize, cell_size, subcell_delta, tmp );
-                    if( ok ) {
-                        if( min_found ) {
-                            subcell_delta -= cell_offset;
-                        }
+                    if( ok && min_found ) {
+                        subcell_delta += cell_offset;
                         avg_shifts[subcellID] += subcell_delta*(1.0-mix);
                     } else {
                         // if the minumum was not well-determined (at the edge of search-area), set to NAN
@@ -679,6 +677,18 @@ void DimmSet::stop( void ) {
             trd.join();
         }
     }
+    
+}
+
+
+void DimmSet::reset( void ) {
+    
+    zero_avgs();
+    
+    lock_guard<mutex> lock( mtx );
+    cell_shifts.clear();
+    r0.clear();
+    frame_data.clear();
     
 }
 

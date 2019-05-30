@@ -67,6 +67,7 @@ namespace wfwfs {
         const std::string& get_name( void ) const { return name; }
         
         Cell& get_ref_cell( void );
+        std::vector<Cell>& get_cells( void ) { return cells; };
         const std::vector<Cell>& get_cells( void ) const { return cells; };
         bool adjust_cells(void);
         void shift_cells(PointI);
@@ -99,6 +100,7 @@ namespace wfwfs {
         
         void start( void );
         void stop( void );
+        void reset( void );
 
     private:
         

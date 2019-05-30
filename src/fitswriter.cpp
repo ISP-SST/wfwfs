@@ -147,6 +147,17 @@ void FitsWriter::makeHdr( void ) {
     }
     Fits::insertCard( cards, Fits::makeCard<string>( "EXTNAME", "Main" ) );
     Fits::insertCard( cards, Fits::makeCard<string>( "TAB_HDUS", "TABULATIONS;DATE-BEG" ) );
+    
+    string timestamp = to_iso_extended_string( first_ts );
+    size_t pos = timestamp.find_last_of('.');
+    string timestamp_s = timestamp;
+    if( pos != string::npos ) timestamp_s = timestamp.substr(0,pos);
+    Fits::updateCard( cards, Fits::makeCard<string>( "DATE-OBS", timestamp_s ) );
+    Fits::updateCard( cards, Fits::makeCard<string>( "DATE", timestamp ) );
+    bpx::time_duration elapsed = (last_ts - first_ts);
+    first_ts += elapsed/2;
+    Fits::updateCard( cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(first_ts), "Average time of observations" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATE-END", to_iso_extended_string(last_ts), "End time of observations" ) );
 
     cards.insert( cards.end(), globalMeta.begin(), globalMeta.end() );      // copy global meta-data.
     cards.insert( cards.end(), extra_meta.begin(), extra_meta.end() );      // copy extra meta-data.
@@ -375,8 +386,8 @@ void FitsWriter::close_file( void ) {
     pad_to( fd, 2880 );
     
     size_t pos = lseek( fd, 0, SEEK_CUR );		// save EOF position
-
     lseek( fd, 0, SEEK_SET );			        // move back to primary HDU
+    
     write_meta( fd, hdr->primaryHDU.cards );
 
     if( do_compress ) {

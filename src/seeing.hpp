@@ -34,6 +34,7 @@
 #include <mutex>
 
 #include <boost/asio.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/property_tree/ptree.hpp>
 
 
@@ -110,6 +111,7 @@ namespace wfwfs {
         size_t dsID;
         float avg_intensity;                // Store current intensity, as measured within the DIMM cells (stored as a fraction of max-intensity)
 
+        boost::posix_time::ptime timestamp;
         std::vector<AutoSave> saves;
         std::vector<SeeingLog> logs;
         

@@ -645,9 +645,11 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
         copy_n( f.hist, histSize, histPtr );
     }
 
-    connection->writeline( reply );
-    connection->syncWrite( buf.get(), blockSize );
-
+    if( connection ) {
+        connection->writeline( reply );
+        connection->syncWrite( buf.get(), blockSize );
+    }
+    
 }
 
 
@@ -759,6 +761,8 @@ void Daemon::save_fits( string filename_template, int nframes, uint32_t frames_p
     broadcast( "state", "OK state burst" );
     while( frame_count < nframes ) {
         string this_fn = make_filename( filename_template, file_count, frame_count );
+        Fits::updateCard( cards, Fits::makeCard( "FRAMENUM", frame_count ) );
+        fw->save_meta( cards );
         int nf = std::min<int>( nframes-frame_count, frames_per_file );
         fw->save( this_fn, first_frame, nf );
         file_count++;
@@ -1081,7 +1085,7 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
                 float d = pop<float>( line );
                 seeing.set_diam( d );
                 replyStr = boost::str( boost::format("OK set diam %f") % d );
-            }  else if( what == "lambda" ) {
+            } else if( what == "lambda" ) {
                 float l = pop<float>( line );
                 seeing.set_lambda( l );
                 replyStr = boost::str( boost::format("OK set lambda %f") % l );
@@ -1138,13 +1142,17 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
             } else if(what == "dark") {
                 bool do_shm WFWFS_UNUSED = (popword(line) == "shm");
                 size_t blockSize = dd.nElements()*sizeof(float);
-                conn->writeline( boost::str( boost::format("OK dark %d") % blockSize ) );
-                conn->syncWrite( dd.getData().get(), blockSize );
+                if( conn ) {
+                    conn->writeline( boost::str( boost::format("OK dark %d") % blockSize ) );
+                    conn->syncWrite( dd.getData().get(), blockSize );
+                }
             } else if(what == "flat") {
                 bool do_shm WFWFS_UNUSED = (popword(line) == "shm");
                 size_t blockSize = ff.nElements()*sizeof(float);
-                conn->writeline( boost::str( boost::format("OK flat %d") % blockSize ) );
-                conn->syncWrite( ff.getData().get(), blockSize );
+                if( conn ) {
+                    conn->writeline( boost::str( boost::format("OK flat %d") % blockSize ) );
+                    conn->syncWrite( ff.getData().get(), blockSize );
+                }
             } else if(what == "cells") {
                 size_t id = pop<int>( line );
                 replyStr = "OK cells " + seeing.get_cells( id );
@@ -1208,11 +1216,12 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
     } else if ( command == "save" ) {
         int n_frames = pop<int>( line );
         int frames_per_file = line.empty() ? 20 : pop<int>( line );
-        string filename = "%DATE%/data/%TIME%/wfwfs_%FRAMENUMBER%.fits";
+        string filename = "%DATE%/save/%TIME%/wfwfs_%FRAMENUMBER%.fits";
         string acc_name = "";
         if( n_frames < 0 ) {  // do accumulation
             n_frames = std::abs(n_frames);
-            std::swap( filename, acc_name );
+            acc_name = "%DATE%/save/%TIME%/wfwfs_%FRAMENUMBER%.fits";
+            filename = "";
         }
         save_fits(  make_filename(filename,-1,-1), n_frames, frames_per_file, true, 0,  make_filename(acc_name,-1,-1) );
         replyStr = "OK save";
@@ -1259,6 +1268,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         size_t id = pop<int>( line );
         replyStr = "OK adjust " + seeing.adjust_cells( id );
         seeing.draw_cells( cell_mask );
+    } else if( command == "zero_avgs") {
+        seeing.zero_avgs();
+        replyStr = "OK zero_avgs" ;
     } else if( command == "shift") {
         PointI s;
         s = pop<int>( line );
@@ -1291,7 +1303,7 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
     }
 
     if( !replyStr.empty() ) {
-        conn->writeline( replyStr );
+        if( conn ) conn->writeline( replyStr );
         if( !tag.empty() ) broadcast( tag, replyStr, conn );
     }
 
@@ -1363,6 +1375,8 @@ void Daemon::removeConnection( TcpConnection::Ptr conn ) {
 
 void Daemon::subscribe( const TcpConnection::Ptr& conn, std::string tag ) {
     
+    if( !conn ) return;
+    
     lock_guard<mutex> lock( globalMutex );
     auto& subs = subscriptions[conn];
     auto ret = subs.insert( tag );
@@ -1373,6 +1387,8 @@ void Daemon::subscribe( const TcpConnection::Ptr& conn, std::string tag ) {
 
 
 void Daemon::unsubscribe( const TcpConnection::Ptr& conn, std::string tag ) {
+    
+    if( !conn ) return;
     
     lock_guard<mutex> lock( globalMutex );
     auto subsit = subscriptions.find(conn);
@@ -1710,7 +1726,7 @@ void Daemon::do_accumulation( Array<float>& out, Array<uint32_t>& acc, string fn
 
 void Daemon::darkburst( size_t n ) {
     
-    string filename = "calib/%DATE%/darks/%TIME%/dark_%FRAMENUMBER%.fits";
+    string filename = "calib/%DATE%/darks/%TIME%/darks_%FRAMENUMBER%.fits";
     string acc_name = "calib/%DATE%/dark_%TIME%.fits";
 
     save_fits( make_filename(filename,-1,-1), n, 20, true, 0, make_filename(acc_name,-1,-1) );
@@ -1723,7 +1739,7 @@ void Daemon::darkburst( size_t n ) {
 
 void Daemon::flatburst( size_t n ) {
     
-    string filename = "calib/%DATE%/flats/%TIME%/flat_%FRAMENUMBER%.fits";
+    string filename = "calib/%DATE%/flats/%TIME%/flats_%FRAMENUMBER%.fits";
     string acc_name = "calib/%DATE%/flat_%TIME%.fits";
     
     save_fits( make_filename(filename,-1,-1), n, 20, true, 0, make_filename(acc_name,-1,-1) );
@@ -1862,9 +1878,10 @@ void Daemon::thumbnail( TcpConnection::Ptr conn ) {
         }
     }
 
-    conn->writeline( "OK thumbnail" );
-    conn->syncWrite( thumb_buf, sz );
-    
+    if( conn ) {
+        conn->writeline( "OK thumbnail" );
+        conn->syncWrite( thumb_buf, sz );
+    }
 }
 
 

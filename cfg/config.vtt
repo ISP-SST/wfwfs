@@ -56,8 +56,8 @@ dimm {
     auto_adjust = 0
 }
 save {
-    name = %DATE%/data/%TIME%/wfwfs_%FRAMENUMBER%.fits
-    trigger = 4-corners 30
+    name = %DATE%/%TIME%/wfwfs_%FRAMENUMBER%.fits
+    trigger = triangle 30
     limit = 0.06
     delay = -30
     nframes = 400
@@ -67,7 +67,7 @@ save {
     compress = 1
 }
 save {
-    name = calib/%DATE%/darks/%TIME%/dark_%FRAMENUMBER%.fits
+    name = calib/%DATE%/darks/%TIME%/darks_%FRAMENUMBER%.fits
     acc_name = calib/%DATE%/dark_%TIME%.fits
     trigger = time 04:00
     frames_per_file = 20

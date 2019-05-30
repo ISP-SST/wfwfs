@@ -65,7 +65,7 @@ dimm {
     auto_adjust = 0
 }
 save {
-    name = %DATE%/data/%TIME%/wfwfs_%FRAMENUMBER%.fits
+    name = %DATE%/%TIME%/wfwfs_%FRAMENUMBER%.fits
     trigger = triangle 30
     limit = 0.08
     delay = -30
@@ -76,7 +76,18 @@ save {
     compress = 1
 }
 save {
-    name = calib/%DATE%/flats/%TIME%/flat_%FRAMENUMBER%.fits
+    name = hq_%DATE%/%TIME%/wfwfs_%FRAMENUMBER%.fits
+    trigger = triangle 10
+    limit = 0.20
+    delay = -10
+    nframes = 100
+    frames_per_file = 20
+    min_interval = 0
+    poll_interval = 1
+    compress = 1
+}
+save {
+    name = calib/%DATE%/flats/%TIME%/flats_%FRAMENUMBER%.fits
     acc_name = calib/%DATE%/flat_%TIME%.fits
     trigger = telnet turret 16000
     telnet_cmd = get mode
@@ -89,7 +100,7 @@ save {
     min_interval = 3600
 }
 save {
-    name = calib/%DATE%/darks/%TIME%/dark_%FRAMENUMBER%.fits
+    name = calib/%DATE%/darks/%TIME%/darks_%FRAMENUMBER%.fits
     acc_name = calib/%DATE%/dark_%TIME%.fits
     trigger = time 04:00
     frames_per_file = 20

@@ -297,6 +297,8 @@ void Seeing::stop_logs( void ) {
 
 void Seeing::start( void ) {
     
+    timestamp = bpx::second_clock::universal_time();
+    
     start_dimms();
     start_logs();
     start_saves();
@@ -315,13 +317,19 @@ void Seeing::stop( void ) {
 
 void Seeing::maintenance( void ) {
     
-    for( auto& ds: dimm_sets ) {
-        ds.check();
+    bpx::ptime now = bpx::second_clock::universal_time();  
+    bool new_day = now.date() != timestamp.date();
+    
+    if( new_day ) {
+        for( auto& ds: dimm_sets ) {
+            ds.reset();
+        }
+        for( auto& l: logs ) {
+            l.reopen();
+        }
+        timestamp = now;
     }
     
-    for( auto& l: logs ) {
-        l.check();
-    }
     
 }
 

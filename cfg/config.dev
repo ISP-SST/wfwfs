@@ -27,7 +27,7 @@ meta {
     ORIGIN = Development
 }
 xsave {
-    name = %DATE%/data/%TIME%/wfwfs_%FRAMENUMBER%.fits
+    name = %DATE%/%TIME%/wfwfs_%FRAMENUMBER%.fits
     trigger = 4-corners 30
     limit = 0.08
     delay = -30
