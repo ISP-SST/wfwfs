@@ -117,7 +117,7 @@ namespace wfwfs {
         uint16_t cell_size;
         uint16_t subcell_size;
         uint8_t max_shift;
-        size_t ref_cell;
+        int ref_cell;
         
         uint16_t interval;                          // (s) How often r0 should be calculated
         uint16_t duration;                          // (s) How long timespan to accumulate statistics in the r0 calculation

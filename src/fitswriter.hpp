@@ -61,11 +61,16 @@ namespace wfwfs {
             std::lock_guard<std::mutex> lock(globalMtx); Fits::updateCard( globalMeta, key, Fits::makeCard(key, value, comment) );
         }
 
+        static std::string get_saves( void );
+        static void clear_saves( void ) { std::lock_guard<std::mutex> lock(globalMtx); saves.clear(); };
+
     private:
         
         static std::shared_ptr<uint8_t> get_buf( size_t N );
         static void return_buf( std::shared_ptr<uint8_t>& );
         static void clear_bufs( void );
+        
+        static void add_save( boost::posix_time::ptime from, boost::posix_time::ptime to );
         
         void open_file( const std::string& filename, size_t sz=0 );
         void close_file( void );
@@ -88,7 +93,7 @@ namespace wfwfs {
         int npixels;
         int fd;
 
-        size_t pcount, maxRowSize;
+        int pcount, maxRowSize;
         size_t hdrEnd, dataStart;
         std::vector<std::string> extra_meta;
         std::shared_ptr<Fits> hdr;
@@ -110,6 +115,7 @@ namespace wfwfs {
         static std::list<std::shared_ptr<uint8_t>> buffers;
         static std::vector<std::string> globalMeta;
         static std::mutex globalMtx, bufMtx;
+        static std::set<std::pair<boost::posix_time::ptime,boost::posix_time::ptime>> saves;
         
         FrameQueue& fq;
         

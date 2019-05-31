@@ -155,7 +155,7 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     running_average = cfg_ptree.get<float>( "running_average", running_average );
     min_lock = cfg_ptree.get<float>( "min_lock", min_lock );
 
-    ref_cell = cfg_ptree.get<size_t>( "ref_cell", ref_cell );
+    ref_cell = cfg_ptree.get<int>( "ref_cell", ref_cell );
     
     PointI cell_offset(0,0);
     vector<int32_t> co = cfg_ptree.get< vector<int32_t> >( "cell_offset", vector<int32_t>() );
@@ -206,7 +206,7 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
 
 Cell& DimmSet::get_ref_cell( void ) {
 
-    if( ref_cell < cells.size() ) {
+    if( (ref_cell >= 0) && (ref_cell < cells.size()) ) {
         return cells[ref_cell];
     } else if( !cells.empty() ) {   // if no ref_cell was supplied, use the first cell
         return cells[0];
@@ -300,7 +300,6 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
 
     size_t cs2 = cell_size*cell_size;
     size_t refOffset = ref_cell*cs2 + max_shift*(cell_size+1);
-    size_t N = 2*max_shift+1;
     
     float mix = 1.0 - avg_interval/running_average;
 
@@ -656,7 +655,7 @@ void DimmSet::start( void ) {
         running = true;
     }
     
-    check();
+    reset();
     
     trd = std::thread([&](){
         while( running ) {

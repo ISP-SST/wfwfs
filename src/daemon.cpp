@@ -817,20 +817,16 @@ void Daemon::maintenance( void ) {
 
     timer.expires_from_now( boost::posix_time::seconds( 5 ) );
     
-    static float last_intensity(0.05);
-    
+    int data_max = (1<<fqueue.depth)-1;
     float avg_intensity = seeing.get_avg_intensity();
-    float ratio = avg_intensity/last_intensity;
+    float ratio = avg_intensity/data_max;
 
-    //if( fabs((avg_intensity-previous_intensity)/previous_intensity) > 0.3 ) { FIXME
-    if( ratio < 0.2 ) {
-        light( false );
-    } else if( ratio > 5 ) {
+    if( ratio > 0.05 ) {
         light( true );
+    } else {
+        light( false );
     }
 
-    last_intensity = avg_intensity;
-    
     seeing.maintenance();
     
     timer.async_wait( boost::bind( &Daemon::maintenance, this ) );
@@ -1158,6 +1154,8 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
                 replyStr = "OK cells " + seeing.get_cells( id );
             } else if(what == "shifts") {
                 replyStr = "OK shifts " + seeing.get_shifts();
+            } else if(what == "saves") {
+                replyStr = FitsWriter::get_saves();
             } else if(what == "ashifts") {
                 size_t id = pop<int>( line );
                 replyStr = "OK ashifts " + seeing.get_ashifts( id );
@@ -1225,6 +1223,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
         }
         save_fits(  make_filename(filename,-1,-1), n_frames, frames_per_file, true, 0,  make_filename(acc_name,-1,-1) );
         replyStr = "OK save";
+    } else if(command == "clear_saves") {
+        FitsWriter::clear_saves();
+        replyStr = "OK clear_saves";
     } else if(command == "dark") {
         //darkburst( pop<int>( line ) );
         darkburst( pop<int>( line ) );

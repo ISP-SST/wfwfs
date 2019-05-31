@@ -23,6 +23,7 @@
 #include "fitswriter.hpp"
 
 #include "ricecompress.hpp"
+#include "version.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -48,7 +49,7 @@ list<shared_ptr<uint8_t>> FitsWriter::buffers;
 vector<string> FitsWriter::globalMeta;
 mutex FitsWriter::globalMtx;
 mutex FitsWriter::bufMtx;
-
+set<pair<boost::posix_time::ptime,boost::posix_time::ptime>> FitsWriter::saves;
 
 namespace {
 
@@ -59,10 +60,11 @@ namespace {
         size_t pos = lseek( fd, 0, SEEK_CUR) % boundary;
         if( pos ) {
             size_t pad = boundary - pos;
-            unique_ptr<char[]>tmp( new char[pad] );
+            unique_ptr<char[]> tmp( new char[pad] );
             memset( tmp.get(), 0, pad );
-            if( write( fd, tmp.get(), pad ) != pad ) {
-                cerr << "FitsWriter: Failed to write padding.\n";
+            size_t n = write( fd, tmp.get(), pad );
+            if( n != pad ) {
+                cerr << "FitsWriter: Failed to write padding: " << strerror(errno) << endl;
             }
         }
     }
@@ -79,8 +81,9 @@ namespace {
             std::copy( c.begin(), c.end(), hPtr );
             hPtr += 80;
         }
-        if( write( fd, hdu.get(), metaSize ) != metaSize ) {	// write offset+size for rows in binary table
-            cerr << "\nwrite_meta: Failed to write hdu.\n";
+        size_t n = write( fd, hdu.get(), metaSize );
+        if( n != metaSize ) {	// write offset+size for rows in binary table
+            cerr << "\nwrite_meta: Failed to write hdu: " << strerror(errno) << endl;
         }
     }
 
@@ -88,9 +91,8 @@ namespace {
 
 
 FitsWriter::FitsWriter( FrameQueue& FQ, const string& afn, int nT, bool compress )
-    : running(true), do_fsync(false), do_compress(compress), index(0), do_acc(false), acc_filename(afn),
-      first_ts(bpx::not_a_date_time), last_ts(bpx::not_a_date_time), nthreads(nT),
-      npixels(FQ.width*FQ.height), fd(-1), fq(FQ) {
+    : running(true), do_fsync(false), do_compress(compress), index(0), nthreads(nT), npixels(FQ.width*FQ.height), fd(-1),
+      do_acc(false), acc_filename(afn), first_ts(bpx::not_a_date_time), last_ts(bpx::not_a_date_time), fq(FQ) {
 
     bytes_per_pixel = (fq.depth-1)/8 + 1;
     frame_count = 0;
@@ -117,6 +119,12 @@ FitsWriter::~FitsWriter() {
     
     if( do_acc ) {
         write_acc();
+    }
+    
+    if( do_write || do_acc ) {
+        if( !first_ts.is_not_a_date_time() && !last_ts.is_not_a_date_time() ) {
+            add_save( first_ts, last_ts );
+        }
     }
     
     lock_guard<mutex> lock( globalMtx );
@@ -152,13 +160,15 @@ void FitsWriter::makeHdr( void ) {
     size_t pos = timestamp.find_last_of('.');
     string timestamp_s = timestamp;
     if( pos != string::npos ) timestamp_s = timestamp.substr(0,pos);
-    Fits::updateCard( cards, Fits::makeCard<string>( "DATE-OBS", timestamp_s ) );
-    Fits::updateCard( cards, Fits::makeCard<string>( "DATE", timestamp ) );
+    Fits::insertCard( cards, Fits::makeCard<string>( "DATE", timestamp ) );
+    Fits::insertCard( cards, Fits::makeCard<string>( "DATE-OBS", timestamp_s ) );
     bpx::time_duration elapsed = (last_ts - first_ts);
     first_ts += elapsed/2;
-    Fits::updateCard( cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(first_ts), "Average time of observations" ) );
-    Fits::updateCard( cards, Fits::makeCard( "DATE-END", to_iso_extended_string(last_ts), "End time of observations" ) );
+    Fits::insertCard( cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(first_ts), "Average time of observations" ) );
+    Fits::insertCard( cards, Fits::makeCard( "DATE-END", to_iso_extended_string(last_ts), "End time of observations" ) );
 
+    Fits::insertCard( cards, Fits::makeCard<string>( "WFWFSVER", getVersionString() ) );
+    
     cards.insert( cards.end(), globalMeta.begin(), globalMeta.end() );      // copy global meta-data.
     cards.insert( cards.end(), extra_meta.begin(), extra_meta.end() );      // copy extra meta-data.
 
@@ -230,20 +240,6 @@ void FitsWriter::wait( void ) {
     for( auto& t: threads ) t.join();
 
     threads.clear();
-    maxRowSize = 0;
-    pcount = 0;
-    
-    int dataStart = INT32_MAX;
-    for( int i=0; i<offsets.size(); i+=2 ) {
-        if( offsets[i] > maxRowSize ) maxRowSize = offsets[i];
-        if( offsets[i+1] && (offsets[i+1] < dataStart) ) dataStart = offsets[i+1];
-        pcount += offsets[i];
-    }
-    
-    for( int i=0; i<offsets.size(); i+=2 ) {
-        offsets[i] = htobe32(offsets[i]);
-        if( offsets[i+1] ) offsets[i+1] = htobe32(offsets[i+1]-dataStart);
-    }
     
 }
 
@@ -275,7 +271,8 @@ void FitsWriter::thread_run(void) {
                         frameOffset = lseek( fd, 0, SEEK_CUR );
                         int count = write( fd, cData.get(), cSize );
                         if( count != cSize ) {
-                            fprintf( stderr, "FitsWriter: write failed for frame #%d, count=%d  cSize=%d\n", (ind/2), count, cSize );
+                            fprintf( stderr, "FitsWriter: write failed for frame #%d, count=%d  cSize=%d: %s\n",
+                                     (ind/2), count, cSize, strerror(errno) );
                         }
                     } else {
                         fprintf( stderr, "FitsWriter: compression failed for frame #%d.\n", (ind/2) );
@@ -297,7 +294,8 @@ void FitsWriter::thread_run(void) {
                         lock_guard<mutex> wlock(writeMtx);
                         size_t count = write( fd, f.get(), fq.frameSize );
                         if( count != fq.frameSize ) {
-                            fprintf( stderr, "FitsWriter: write failed for frame #%d, count=%zu  frameSize=%zu\n", (ind/2), count, fq.frameSize );
+                            fprintf( stderr, "FitsWriter: write failed for frame #%d, count=%zu  frameSize=%zu: %s\n",
+                                     (ind/2), count, fq.frameSize, strerror(errno) );
                         }
                     }
                     lock.lock();
@@ -323,7 +321,7 @@ void FitsWriter::push( const Frame& f ) {
             if( first_ts.is_not_a_date_time() || (first_ts > f.timestamp) ) {
                 first_ts = f.timestamp;
             }
-            if( last_ts.is_not_a_date_time() || (last_ts > f.timestamp) ) {
+            if( last_ts.is_not_a_date_time() || (last_ts < f.timestamp) ) {
                 last_ts = f.timestamp;
             }
         }
@@ -391,6 +389,23 @@ void FitsWriter::close_file( void ) {
     write_meta( fd, hdr->primaryHDU.cards );
 
     if( do_compress ) {
+        
+        maxRowSize = 0;
+        pcount = 0;
+        
+        int dataStart = INT32_MAX;
+        for( size_t i=0; i<offsets.size(); i+=2 ) {
+            if( offsets[i] > maxRowSize ) maxRowSize = offsets[i];
+            if( offsets[i+1] && (offsets[i+1] < dataStart) ) dataStart = offsets[i+1];
+            pcount += offsets[i];
+        }
+        
+        for( size_t i=0; i<offsets.size(); i+=2 ) {
+            offsets[i] = htobe32(offsets[i]);
+            if( offsets[i+1] ) offsets[i+1] = htobe32(offsets[i+1]-dataStart);
+        }
+        
+        
         const vector<string> comp_meta = {
             Fits::makeCard( "XTENSION", "BINTABLE", "binary table extension" ),
             Fits::makeCard( "BITPIX", 8, "8-bit data" ),
@@ -425,8 +440,9 @@ void FitsWriter::close_file( void ) {
         write_meta( fd, comp_meta );
 
         size_t sz = offsets.size()*sizeof(int);
-        if( write( fd, offsets.data(), sz ) != sz ) {	// write offset+size for rows in binary table
-            cerr << "FitsWriter: Failed to write row information.\n";
+        size_t n = write( fd, offsets.data(), sz );
+        if( n != sz ) {	// write offset+size for rows in binary table
+            cerr << "FitsWriter: Failed to write row information: " << strerror(errno) << endl;
         }
     }
 
@@ -472,7 +488,7 @@ void FitsWriter::write_exptime_table( void ) {
         string ts = to_iso_extended_string( t );
         ts.resize( 26, ' ' );
         if( write( fd, ts.data(), 26 ) != 26 ) {
-            cerr << "\nwrite_exptime_table: Failed to write timestamp." << endl;
+            cerr << "write_exptime_table: Failed to write timestamp: " << strerror(errno) << endl;
         }
     }
 
@@ -568,4 +584,33 @@ void FitsWriter::clear_bufs( void ) {
     lock_guard<mutex> block(bufMtx);
     buffers.clear();
 }
-        
+
+
+string FitsWriter::get_saves( void ) {
+    
+    static const bpx::ptime epoch_time( boost::gregorian::date(1970,1,1) ); 
+    string ret;
+    
+    lock_guard<mutex> lock( globalMtx );
+    for( auto& s: saves ) {
+        bpx::time_duration tmp = s.first - epoch_time;
+        size_t nSecs = tmp.total_seconds();
+        size_t nMicros = s.first.time_of_day().total_microseconds() - s.first.time_of_day().total_seconds()*1000000L;
+        string line = boost::str( boost::format("%ld.%06ld") % nSecs % nMicros );
+        tmp = s.second - epoch_time;
+        nSecs = tmp.total_seconds();
+        nMicros = s.second.time_of_day().total_microseconds() - s.second.time_of_day().total_seconds()*1000000L;
+        line += boost::str( boost::format("    %ld.%06ld") % nSecs % nMicros );
+        ret += line + "\n";
+    }
+
+    return ret;
+}
+
+
+void FitsWriter::add_save( boost::posix_time::ptime from, boost::posix_time::ptime to ) {
+    
+    lock_guard<mutex> lock( globalMtx );
+    saves.emplace( make_pair(from, to) );
+    
+}

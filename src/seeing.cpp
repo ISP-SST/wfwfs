@@ -115,8 +115,8 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
 
     memset( out, 0, get_data_size() );
     
-    double sum(0.0);
-    size_t nSummed(0);
+    double total_sum(0.0);
+    size_t nTotalSummed(0);
         
     for( auto& ds: dimm_sets ) {
         ds.add_frame_data( f.timestamp, buf, ds_offset );
@@ -129,6 +129,8 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
         size_t c_offset(0);
         for( size_t n(0); n<cells.size(); ++n ) {
             const Cell& c = cells[n];
+            double cell_sum(0.0);
+            size_t n_cell_summed(0);
             auto outPtr = out + ds_offset + c_offset;
             size_t this_cell_size = cs;
             if( n == ds.get_ref_cell_id() ) {
@@ -144,27 +146,25 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
                 } else {
                     std::copy_n( in+offset, this_cell_size, outPtr );
                 }
-                sum = std::accumulate( outPtr, outPtr+this_cell_size, sum );
-                nSummed += this_cell_size;
+                cell_sum = std::accumulate( outPtr, outPtr+this_cell_size, cell_sum );
+                n_cell_summed += this_cell_size;
                 outPtr += cs;
             }
+            total_sum += cell_sum;
+            nTotalSummed += n_cell_summed;
+            if( n_cell_summed ) cell_sum /= n_cell_summed;
             c_offset += imgStride;
         }
         ds_offset += c_offset;
     }
     
-    if( nSummed ) {
-        sum /= nSummed;
+    if( nTotalSummed ) {
+        total_sum /= nTotalSummed;
     }
     
-    if( maxval ) {
-        sum /= maxval;
-    }
-    
-    const float mix = 0.1;
+    const float mix = 0.01;
     avg_intensity *= (1.0-mix);
-    avg_intensity += mix*sum;
-
+    avg_intensity += mix*total_sum;
     
 }
 template void Seeing::copy_cell_data<uint8_t>( Frame&, float*, float*, size_t, int );
