@@ -1,0 +1,11 @@
+# cron script for maintaining the WFWFS daemon and copying data
+#
+# Run a check every minute to restart the daemon after a potential crash
+# For now we force a restart every morning at 05:00 (UT) just to avoid potential bugs/buildups in the code.
+# Start the data-copying after midnight (UT) every night
+#
+PATH=/usr/local/bin:/usr/bin:/bin:/sbin
+@reboot root /etc/init.d/wfwfs start >/dev/null 2>&1
+* * * * * root /etc/init.d/wfwfs check >/dev/null 2>&1
+0 6 * * * root pkill wfwfs >/dev/null 2>&1
+15 1 * * * obs wfwfs-rsync >/dev/null 2>&1

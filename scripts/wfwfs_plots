@@ -1,0 +1,85 @@
+#!/bin/sh
+
+cd /srv/www/htdocs/wfwfs/
+
+# Calculate start and end date for todays plots
+day=`date +%Y-%m-%d`
+dstart=`date +%s --utc -d 6:00`
+dend=`date +%s --utc -d 20:00`
+#day=`date +%Y-%m-%d -d "now -48 hours"`
+#dstart=`date +%s --utc -d "now -100 hours"`
+#dend=`date +%s --utc -d "now -10 hours"`
+cstart=`date +%s --utc -d "now -29 minutes"`
+cend=`date +%s --utc -d "now +1 minute"`
+#cstart=`date +%s --utc -d "now -3629 minutes"`
+#cend=`date +%s --utc -d "now -3599 minutes"`
+#cstart=`date +%s --utc -d 14:00`
+#cend=`date +%s --utc -d 14:30`
+
+# Make plots
+gnuplot << EOF
+	#set terminal png enhanced small
+	set terminal pngcairo enhanced font 'Verdana,8'
+	set xlabel "time (UTC)"
+	set xdata time
+	set timefmt "%s"
+	set format x "%H:%M"
+	set ylabel "R_0 (cm)"
+#	set y2label "sunlight (V)"
+#	set ytics nomirror
+#	set y2tics
+	set xrange ["$cstart":"$cend"]
+	set yrange [0:50]
+	set grid
+	set title "SST/WFWFS $day"
+	set style fill transparent solid 0.1 noborder
+	set grid front
+#	set y2range [0:7]
+
+	sst="wfwfs_r0.log"
+	vtt="helios_r0.log"
+
+	# SST plots
+	set xrange ["$cstart":"$cend"]
+	set output "sst_r0.png.tmp"
+	plot \
+		sst using (\$1-2.5):(\$2*100) title "R_0 (5sec avg, 11'' FOV)" with l lt 1 lw 0.5 lc rgb 'green', \
+		sst using (\$1-2.5):(\$5*100) title "R_0 (5sec avg, 3.6'' FOV)" with l lt 4 lw 0.4 lc rgb 'black', \
+		sst using (\$1-90):(\$4*100) title "R_0 (3min avg, 11'' FOV)" with l lw 0.6 lt 6
+#		sst using (\$1-15):(\$3*100) title "R_0 (30sec avg, 11'' FOV)" with l lw 0.6 lt 6 lc rgb 'orange', \
+
+	set xrange ["$dstart":"$dend"]
+	set output "sst_r0daily.png.tmp"
+	plot \
+		-1 title "R_0 Peaks (5sec avg, 11'' FOV)" with l lc rgb 'green', \
+		sst using (\$1-2.5):(\$2 > (\$4+0.05) ? \$2*100: 1/0) with d lc rgb 'green' notitle, \
+		sst using (\$1-90):(\$4*100) title "R_0 (3min avg, 11'' FOV)" with l lw 0.6 lt 6, \
+		sst using (\$1-90):(\$7*100) title "R_0 (3min avg, 3.6'' FOV)" with l lt 4 lw 0.6 lc rgb 'black'
+#		sst using (\$1-15):(\$3 > 0.08 ? 1 : 1/0) with d lc rgb 'red' notitle, \
+
+	# VTT plots
+	set title "VTT/WFWFS $day"
+	set xrange ["$cstart":"$cend"]
+	set output "vtt_r0.png.tmp"
+	plot \
+		vtt using (\$1-2.5):(\$2*100) title "R_0 (5sec avg, 11'' FOV)" with l lt 1 lw 0.5 lc rgb 'green', \
+		vtt using (\$1-2.5):(\$5*100) title "R_0 (5sec avg, 3.6'' FOV)" with l lt 4 lw 0.4 lc rgb 'black', \
+		vtt using (\$1-90):(\$4*100) title "R_0 (3min avg, 11'' FOV)" with l lw 0.6 lt 6
+#		vtt using (\$1-15):(\$3*100) title "R_0 (30sec avg, 11'' FOV)" with l lw 0.6 lt 6 lc rgb 'orange', \
+
+	set xrange ["$dstart":"$dend"]
+	set output "vtt_r0daily.png.tmp"
+	plot \
+		-1 title "R_0 Peaks (5sec avg, 11'' FOV)" with l lc rgb 'green', \
+		vtt using (\$1-2.5):(\$2 > (\$4+0.03) ? \$2*100: 1/0) with d lc rgb 'green' notitle, \
+		vtt using (\$1-90):(\$4*100) title "R_0 (3min avg, 11'' FOV)" with l lw 0.6 lt 6, \
+		vtt using (\$1-90):(\$7*100) title "R_0 (3min avg, 3.6'' FOV)" with l lt 4 lw 0.6 lc rgb 'black'
+
+	set output
+EOF
+
+# Atomically move finished plots
+mv sst_r0.png.tmp sst_r0.png
+mv sst_r0daily.png.tmp sst_r0daily.png
+mv vtt_r0.png.tmp vtt_r0.png
+mv vtt_r0daily.png.tmp vtt_r0daily.png

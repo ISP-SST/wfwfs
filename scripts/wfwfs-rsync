@@ -1,0 +1,14 @@
+#!/bin/sh
+#
+# Simple wrapper for the copying of data to Stockholm
+#
+
+RSYNC_OPTIONS="-auvz"
+RSYNC_SDIR="/data/wfwfs/"
+RSYNC_HOST="freija.astro.su.se"
+RSYNC_TAG="wfwfs"
+RSYNC_LOG="/data/sthlm_rsync.log"
+
+[ -r "/etc/default/wfwfs" ] && . "/etc/default/wfwfs"
+
+rsync ${RSYNC_OPTIONS} ${RSYNC_SDIR} ${RSYNC_HOST}::${RSYNC_TAG}/ >> ${RSYNC_LOG} 2>&1

@@ -1,0 +1,31 @@
+#!/bin/bash
+
+SCRIPTNAME=$(basename $BASH_SOURCE)
+PID=$$
+
+# check if another instance is running
+pid=$(pidof -x "$SCRIPTNAME")
+if [[ "$pid" != "$PID" ]]; then { echo "$SCRIPTNAME is already running on this host."; exit; } fi
+
+cd /srv/www/htdocs/wfwfs/
+#rm helios_r0.log
+#rm wfwfs_r0.log
+
+function stream_log() {
+    while true; do
+	echo -e -n "sub wfwfs_r0\r\n" | socket $1 $2 | while read ts aa bb cc dd ee ff; do
+    	    echo $ts $aa $bb $cc $dd $ee $ff >> $1_r0.log
+	done
+	sleep 10
+    done
+}
+
+stream_log wfwfs 15000 &
+#stream_log 10.0.1.96 15000 &
+stream_log helios 35000 &
+
+
+while true; do
+    wfwfs_plots 2>/dev/null
+    sleep 3;
+done
