@@ -162,14 +162,16 @@ void SeeingLog::printHeader( void ) {
 
 void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
     
-    if( running ) {
-        return;
+    {
+        lock_guard<mutex> lock( mtx );
+        if( running ) {
+            return;
+        }
+        running = true;
     }
     
     using namespace std::chrono;
-
     static const bpx::ptime epoch_time( boost::gregorian::date(1970,1,1) ); 
-    running = true;
     
     check();
     
