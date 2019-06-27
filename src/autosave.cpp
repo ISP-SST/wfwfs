@@ -73,6 +73,17 @@ AutoSave::AutoSave() : frames_per_file(20), nframes(1), as_type(TP_NONE), delay(
 }
 
 
+AutoSave::AutoSave(AutoSave&& rhs) : dir(rhs.dir), name(rhs.name), acc_name(rhs.acc_name),
+        frames_per_file(rhs.frames_per_file), nframes(rhs.nframes), as_type(rhs.as_type), delay(rhs.delay),
+        min_interval(rhs.min_interval), poll_interval(rhs.poll_interval), repeats(rhs.repeats), compress(rhs.compress),
+        time_string(rhs.time_string),
+        telnet_host(rhs.telnet_host), telnet_port(rhs.telnet_port), telnet_cmd(rhs.telnet_cmd), telnet_reply(rhs.telnet_reply),
+        dimm_name(rhs.dimm_name), dimm_duration(rhs.dimm_duration), dimm_limit(rhs.dimm_limit) {
+
+    
+}
+
+
 void AutoSave::parsePropertyTree( const boost::property_tree::ptree& cfg_ptree, const std::string& base_dir ) {
     
     bfs::path tmpDir( cfg_ptree.get<string>( "outputdir", base_dir ) );
@@ -115,15 +126,18 @@ void AutoSave::parsePropertyTree( const boost::property_tree::ptree& cfg_ptree, 
 
 
 void AutoSave::start( const vector<DimmSet>& dimm_sets ) {
+    
+    if( running.exchange(true) ) {
+        return;
+    }
 
     static const bpx::ptime epoch_time( boost::gregorian::date(1970,1,1) );
-    
     
     switch( as_type ) {
         case TP_TIME: ;
         case TP_TELNET: ;
-        case TP_DIMM: running = true; break;
-        default: running = false;
+        case TP_DIMM: break;
+        default: stop(); return;
     }
     
     trd = std::thread([&](){
@@ -136,7 +150,7 @@ void AutoSave::start( const vector<DimmSet>& dimm_sets ) {
                 case TP_DIMM: go = wait_for_dimm(dimm_sets); break;
                 default: ;
             }
-            if( go ) {
+            if( running && go ) {
                 Daemon& d = Daemon::get();
                 high_resolution_clock::time_point next = high_resolution_clock::now();
                 if( min_interval ) next += seconds(min_interval);
@@ -151,7 +165,7 @@ void AutoSave::start( const vector<DimmSet>& dimm_sets ) {
                 d.save_fits(  d.make_filename(name,-1,-1), nframes, frames_per_file,
                               compress, first_frame, d.make_filename(acc_name,-1,-1) );
 
-                if( min_interval ) this_thread::sleep_until( next );
+                if( running && min_interval ) this_thread::sleep_until( next );
                       
             } else {
                 usleep(100000);     // just to avoid a busy-loop.
@@ -165,9 +179,10 @@ void AutoSave::start( const vector<DimmSet>& dimm_sets ) {
 
 void AutoSave::stop( void ) {
     
-    running = false;
-    if( trd.joinable() ) {
-        trd.join();
+    if( running.exchange(false) ) {
+        if( trd.joinable() ) {
+            trd.join();
+        }
     }
 
 }
@@ -175,8 +190,14 @@ void AutoSave::stop( void ) {
 
 bool AutoSave::wait_for_time( void ) {
     
-    this_thread::sleep_until( get_next_time( time_string ) );
+    system_clock::time_point next = get_next_time( time_string );
+    system_clock::time_point now = system_clock::now();
     
+    while( now < next ) {
+        this_thread::sleep_for( seconds(poll_interval) );
+        if( !running ) return false;
+        now = system_clock::now();
+    }
     return true;
     
 }
@@ -192,7 +213,8 @@ bool AutoSave::wait_for_telnet( void ) {
         if( !conn ) break;
         conn->writeline( telnet_cmd );
         string reply;
-        conn->readline( reply );
+        size_t n = conn->readline( reply );
+        if( !running || (n == 0) ) break;
         if( iequals( reply, telnet_reply ) ) {
             reply_ok = true;
             break;

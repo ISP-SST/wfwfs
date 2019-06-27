@@ -77,7 +77,7 @@ bool wfwfs::sads( const T* __restrict__ ref_img, size_t ref_size, size_t ref_str
         PointD delta;
         subpixel( tmp, n_positions, shift.x, shift.y, delta.x, delta.y );
         if( delta.max_abs() < 1.5 ) {   // only accept corrections < 1.5
-            shift += delta;
+            shift -= delta;
         }
         ret = true;
     }

@@ -452,9 +452,10 @@ void Daemon::init(void) {
     seeing.find_nominal_gridpoints( cam->get_size() );
     seeing.draw_cells( cell_mask );
     
+    seeing.start();
+
     start_cam();
-    seeing.start_saves();
-//    seeing.start_logs();
+
     
 }
 
@@ -821,14 +822,10 @@ void Daemon::maintenance( void ) {
     float avg_intensity = seeing.get_avg_intensity();
     float ratio = avg_intensity/data_max;
 
-    if( ratio > 0.05 ) {
-        light( true );
-    } else {
-        light( false );
-    }
-
     seeing.maintenance();
     
+    ioService.post( bind(&Daemon::light, this, (ratio > 0.05) ) );
+
     timer.async_wait( boost::bind( &Daemon::maintenance, this ) );
     
 }
@@ -849,6 +846,7 @@ bool Daemon::doWork( void ) {
             std::this_thread::sleep_for( std::chrono::milliseconds(100) );
         }
         
+
         // the io_service will keep running/blocking until stop is called, then wait for the threads to make a clean exit.
         pool.join_all();
 
@@ -1410,7 +1408,7 @@ void Daemon::broadcast( std::string tag, std::string message, TcpConnection::Ptr
     
     lock_guard<mutex> lock( globalMutex );
     for( auto it: subscriptions ) {
-        if( it.first.get() == skip.get() ) continue;
+        if( !it.first || (it.first.get() == skip.get()) ) continue;
         if( it.second.count( tag ) ) {
             it.first->writeline( message );
         }
@@ -1455,16 +1453,14 @@ void Daemon::pause( void ) {
 
 void Daemon::light( bool state ) {
  
-    if( has_light != state ) {
+    if( has_light.exchange(state) != state ) {
         if( state ) {
-            seeing.zero_avgs();
             seeing.start_dimms();
             seeing.start_logs();
         } else {
             seeing.stop_logs();
             seeing.stop_dimms();
         }
-        has_light = state;
     }
 }
 

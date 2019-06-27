@@ -41,6 +41,7 @@ namespace wfwfs {
     class AutoSave {
     public:
         AutoSave();
+        AutoSave( AutoSave&& );
         
         void parsePropertyTree( const boost::property_tree::ptree&, const std::string& );
         void setDir( std::string s ) { dir = s; };
@@ -65,7 +66,7 @@ namespace wfwfs {
         size_t repeats;
         bool compress;
 
-        bool running;
+        std::atomic<bool> running;
         std::thread trd;
         
         // timer

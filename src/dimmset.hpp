@@ -25,6 +25,7 @@
 
 #include "cell.hpp"
 
+#include <atomic>
 #include <string>
 #include <memory>
 #include <mutex>
@@ -108,7 +109,7 @@ namespace wfwfs {
         std::string name;
         mutable std::mutex mtx;
         std::thread trd;
-        bool running;
+        std::atomic<bool> running;
         
         std::vector<Cell> cells;
         std::vector<Cell> subcells;

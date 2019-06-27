@@ -69,7 +69,7 @@ namespace wfwfs {
         float min_lock;                             // (fraction) Minimum lock-ratio for printing r0 to file.
         int interval;
         std::vector< std::pair<std::string,int> > columns;
-        bool running;
+        std::atomic<bool> running;
         boost::posix_time::ptime timestamp;
         std::thread trd;
         std::mutex mtx;

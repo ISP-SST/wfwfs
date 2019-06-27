@@ -308,10 +308,10 @@ void Seeing::start( void ) {
 
 void Seeing::stop( void ) {
     
-    stop_saves();
     stop_logs();
+    stop_saves();
     stop_dimms();
-    
+
 }
 
 

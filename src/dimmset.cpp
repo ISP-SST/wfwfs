@@ -36,7 +36,7 @@ namespace bpx = boost::posix_time;
 
 namespace {
     
-    const PointF base1( 0, 1 );                   // Define base-vectors for the microlense array .
+    const PointF base1( 0, 1 );                   // Define base-vectors for the microlense array.
     const PointF base2( 0.5*sqrt(3), 0.5 );       // We assume a subfield is located approximately at the center of the CCD, hexagonal symmetry,
                                                   // and that the main row is aligned horizontally.
 
@@ -55,7 +55,7 @@ DimmSet::DimmSet(size_t i) : id(i), running(false), ref_cell_size(64), cell_size
 
 
 DimmSet::DimmSet( const DimmSet& rhs ) : id(rhs.id),
-                                    name(rhs.name), running(rhs.running), 
+                                    name(rhs.name), running(rhs.running.load()), 
                                     cells(rhs.cells),
                                     subcells(rhs.subcells),
                                     avg_shifts(rhs.avg_shifts),
@@ -78,7 +78,7 @@ DimmSet::DimmSet( const DimmSet& rhs ) : id(rhs.id),
 
 
 DimmSet::DimmSet( DimmSet&& rhs ) : id(rhs.id),
-                                    name(std::move(rhs.name)), running(rhs.running), 
+                                    name(std::move(rhs.name)), running(rhs.running.load()), 
                                     cells(std::move(rhs.cells)),
                                     subcells(std::move(rhs.subcells)),
                                     avg_shifts(std::move(rhs.avg_shifts)),
@@ -289,10 +289,6 @@ void DimmSet::add_frame_data( bpx::ptime ts, dimm_data_t buf, size_t offset ) {
     lock_guard<mutex> lock( mtx );
     frame_data.push_back( {ts, buf, offset} );
     
-    if( last_r0.is_not_a_date_time() ) {    // force wait until we have enough data
-        last_r0 = ts + bpx::time_duration( 0, 0, duration-interval, 0 );
-    }
-    
 }
 
 
@@ -331,9 +327,9 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
             }
             shifts[cellID] = cell_shift;
             if( !subcells.empty() ) {
-                static const size_t subcell_search = 3;                         // TBD: hardcoded range for subfield search?
-                static const int subcell_shift = (max_shift - subcell_search); 
-                if( subcell_shift <= 0 ) {
+                static const size_t subcell_search = 4;                         // TBD: hardcoded range for subfield search?
+                const int search_diff = (max_shift - subcell_search); 
+                if( search_diff <= 0 ) {
                     continue;
                 }
                 size_t scSize = subcell_size + 2*subcell_search;
@@ -342,20 +338,22 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
                     cell_offset.x = std::round( cell_shift.x );
                     cell_offset.y = std::round( cell_shift.y );
                 }
+                PointI max_subcell_offset(cell_size-scSize);
+                PointI min_subcell_offset(subcell_search);
                 for( auto& sc: subcells ) {
                     int subcellID = c.ID + 100*sc.ID;                           // Create a unique ID for the cell/subcell combination.
                     avg_shifts[subcellID] *= mix;
-                    size_t subcellOffset = sc.pos.y*cell_size + sc.pos.x;
-                    const data_t* subRefPtr = refPtr + subcellOffset;
-                    subcellOffset += (cell_offset.y+subcell_shift)*cell_size + cell_offset.x+subcell_shift;
-                    const data_t* subcellPtr = cellPtr + subcellOffset;
-                    if( subcellOffset + scSize*(cell_size+1) > cs2 ) {          // This shift will be too large, i.e. the array will go out of bounds!
-                        continue;
-                    }
+                    const data_t* subRefPtr = refPtr + sc.pos.y*cell_size + sc.pos.x;
+                    PointI subcell_offset = cell_offset + sc.pos + search_diff;
+                    // restrict range so it doesn't attempt to search outside image.
+                    subcell_offset = subcell_offset.min(max_subcell_offset);
+                    subcell_offset = subcell_offset.max(min_subcell_offset);
+                    const data_t* subcellPtr = cellPtr + subcell_offset.y*cell_size + subcell_offset.x;
+                    subcell_offset -= sc.pos + search_diff;
                     PointF subcell_delta;
                     bool ok = sads( subRefPtr, subcell_size, cell_size, subcellPtr, scSize, cell_size, subcell_delta, tmp );
                     if( ok && min_found ) {
-                        subcell_delta += cell_offset;
+                        subcell_delta -= subcell_offset;
                         avg_shifts[subcellID] += subcell_delta*(1.0-mix);
                     } else {
                         // if the minumum was not well-determined (at the edge of search-area), set to NAN
@@ -375,27 +373,30 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
 void DimmSet::calculate_dim( boost::posix_time::ptime ts, const map<int,PointF>& shifts, const PointI& ij ) {
 
     pair_info& pi = differential_motion[ ij ];
-    if( pi.separation < 2*Seeing::diam_px ) {
+    if( ts.is_not_a_date_time() || (pi.separation < 2*Seeing::diam_px) ) {
         // The DIMM method is only valid for distances larger than approximately twice the subaperture diameter,
-        // so we don't accept any pair closer together than that.
-        //differential_motion.erase( ij );
+        // so we don't accept any pair closer together than that. Or undefined timestamps.
         return;
     }
     
     const PointD avg_ji = avg_shifts[ij.x] - avg_shifts[ij.y];
     try {
         PointD differential_shift = avg_ji + shifts.at(ij.y) - shifts.at(ij.x);
-        auto& data = pi.data[ ts ];
+        auto& value = pi.data[ ts ];
         if( differential_shift.isfinite() && (differential_shift.min_abs() > 0.0) ) {
             differential_shift = differential_shift.projectOnto( pi.diff, true );          // Convert to longitudinal/transverse components w.r.t. the pair-separaion (and preserve norm),
                                                                                            //   the longitudinal part is stored in "x", transverse in "y"
 
-            data.squared_shift = differential_shift*differential_shift;
-            data.ok = true;
+            value.squared_shift = differential_shift*differential_shift;
+            value.ok = true;
         } else {
-            data.ok = false;
+            value.ok = false;
         }
-    } catch ( ... ) { }
+    } catch ( const exception& e ) {
+        cerr << "DimmSet::calculate_dim:  Exception caught! pair: " << ij << "  what: " << e.what() << endl;
+    } catch ( ... ) {
+        cerr << "DimmSet::calculate_dim: Unhandled exception caught! pair: " << ij << "." << endl;
+    }
     
 }
 
@@ -448,6 +449,7 @@ void DimmSet::calculate_r0( void ) {
             }
         }
     }
+
     PointF this_r0 = calculate_r0( timestamp );
     if( !timestamp.is_not_a_date_time() ) {
         lock_guard<mutex> lock( mtx );
@@ -465,14 +467,15 @@ PointD DimmSet::calculate_r0( bpx::ptime& out ) {
         end = bpx::microsec_clock::universal_time();    // set cutoff-time to now.
     }
     
-    if( interval == 0 ) {
-        return r0_sum;
-    }
-    bpx::ptime begin = end - bpx::time_duration( 0, 0, interval, 0 );
-    
+    bpx::ptime begin = end - bpx::time_duration( 0, 0, duration, 0 );
+
 #ifdef PRINT_DEBUG
-    cout << "calculate_r0:    " << __LINE__ << "  " << name << "  interval = " << interval << "\nTime: " << to_simple_string(begin) << "  -> " << to_simple_string(end) << endl;
+    static mutex pmtx;
+    lock_guard<mutex> lock(pmtx);
+    cout << "calculate_r0:    " << __LINE__ << "  " << name << "  duration = " << duration << "  interval = " << interval
+         << "\nTime: " << to_simple_string(begin) << "  -> " << to_simple_string(end) << endl;
     vector<PointI> pair_ids;
+    vector<size_t> n_data;
     vector<size_t> pair_n;
     vector<size_t> pair_good;
     vector<PointF> pair_var;
@@ -496,8 +499,7 @@ PointD DimmSet::calculate_r0( bpx::ptime& out ) {
         size_t nGoodData(0);
         auto it = pi.data.rbegin();
         while( (it != pi.data.rend()) && (it->first > end) ) it++;
-        if( (it != pi.data.rend()) && (out.is_not_a_date_time() || (it->first < out)) ) {
-            // save last timestamp to output.
+        if( (it != pi.data.rend()) && (out.is_not_a_date_time() || (it->first > out)) ) {
             out = it->first;
         }
         while( (it != pi.data.rend()) && (it->first > begin) ) {
@@ -512,7 +514,7 @@ PointD DimmSet::calculate_r0( bpx::ptime& out ) {
         }
 
         if( !nTotalData || !nGoodData || (variance.min() <= 0.0) ) continue;        // No data available.
-        if( static_cast<double>(nGoodData)/nTotalData < min_lock ) continue;              // Less data than required.
+        if( static_cast<double>(nGoodData)/nTotalData < min_lock ) continue;        // Less data than required.
 
         variance /= nTotalData;
 
@@ -522,6 +524,7 @@ PointD DimmSet::calculate_r0( bpx::ptime& out ) {
 
 #ifdef PRINT_DEBUG
         pair_ids.push_back( dm.first );
+        n_data.push_back(pi.data.size());
         pair_n.push_back(nTotalData);
         pair_good.push_back(nGoodData);
         pair_r0.push_back(r0);
@@ -547,6 +550,7 @@ PointD DimmSet::calculate_r0( bpx::ptime& out ) {
     
 #ifdef PRINT_DEBUG
     cout << printArray( pair_ids, "  pairs", 5 ) << endl;
+    cout << printArray( n_data, "   ndata", 5 ) << endl;
     cout << printArray( pair_n, "  count", 5 ) << printArray( pair_good, "  good", 5 ) << endl;
     cout << printArray( pair_var, "    var", 5 ) << endl;
     cout << printArray( pair_sep, "    sep", 5 ) << endl;
@@ -567,6 +571,7 @@ PointD DimmSet::get_r0( bpx::ptime end, uint16_t span ) const {
         end = bpx::microsec_clock::universal_time();    // set cutoff-time to now.
     }
     bpx::ptime begin = end - bpx::time_duration( 0, 0, span, 0 );
+
     {
         lock_guard<mutex> lock( mtx );
         auto it = r0.rbegin();
@@ -580,7 +585,7 @@ PointD DimmSet::get_r0( bpx::ptime end, uint16_t span ) const {
     if( cnt ) {
         ret /= cnt;
     }
-    
+
     return ret;
     
 }
@@ -591,6 +596,7 @@ high_resolution_clock::time_point DimmSet::get_next_time( void ) {
     
     bpx::ptime last_ptime = bpx::not_a_date_time;
     high_resolution_clock::time_point next;
+    high_resolution_clock::time_point now = high_resolution_clock::now();
     if( !r0.empty() ) {
         last_ptime = r0.rbegin()->first;
     }
@@ -600,9 +606,10 @@ high_resolution_clock::time_point DimmSet::get_next_time( void ) {
         long nsec = time_since_epoch.fractional_seconds()*( 1000000000/time_since_epoch.ticks_per_second() ); 
         next += nanoseconds(nsec);
     } else {        // if no previous measurement is done, default to "now+interval"
-        next = high_resolution_clock::now();
+        next = now;
     }
     next += seconds( interval );
+    
     return next;
     
 }
@@ -649,10 +656,9 @@ void DimmSet::start( void ) {
     
     {
         lock_guard<mutex> lock( mtx );
-        if( running ) {
+        if( running.exchange(true) ) {
             return;
         }
-        running = true;
     }
     
     reset();
@@ -660,7 +666,7 @@ void DimmSet::start( void ) {
     trd = std::thread([&](){
         while( running ) {
             calculate_r0();
-            this_thread::sleep_until( get_next_time() );
+            if( running ) this_thread::sleep_until( get_next_time() );
         }
     });
 
@@ -670,8 +676,8 @@ void DimmSet::start( void ) {
 
 void DimmSet::stop( void ) {
     
-    if( running ) {
-        running = false;
+    lock_guard<mutex> lock( mtx );
+    if( running.exchange(false) ) {
         if( trd.joinable() ) {
             trd.join();
         }

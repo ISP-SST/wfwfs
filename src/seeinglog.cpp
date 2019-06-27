@@ -164,10 +164,9 @@ void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
     
     {
         lock_guard<mutex> lock( mtx );
-        if( running ) {
+        if( running.exchange(true) ) {
             return;
         }
-        running = true;
     }
     
     using namespace std::chrono;
@@ -179,6 +178,11 @@ void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
         
         high_resolution_clock::time_point next = high_resolution_clock::now();
         
+        // print an empty line to mark there has been a break/pause in the logging.
+        *this << endl;
+        ofstream::flush();
+        Daemon::broadcast( name, "" );
+    
         while( running ) {
             
             next += seconds(interval);
@@ -229,9 +233,9 @@ void SeeingLog::start( std::vector<DimmSet>& dimm_sets ) {
 
 
 void SeeingLog::stop( void ) {
-    
-    if( running ) {
-        running = false;
+
+    lock_guard<mutex> lock( mtx );
+    if( running.exchange(false) ) {
         if( trd.joinable() ) {
             trd.join();
         }

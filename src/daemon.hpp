@@ -33,6 +33,7 @@
 #include "seeing.hpp"
 
 
+#include <atomic>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -140,7 +141,7 @@ namespace wfwfs {
         
         uint16_t nQueuedJobs;
         uint32_t hostTimeout;
-        bool has_light;
+        std::atomic<bool> has_light;
 
         std::mutex connMutex;
 
