@@ -140,27 +140,32 @@ namespace {
         if( bfs::is_regular(p) || bfs::is_symlink(p) ) {  // load and parse file
             try {
                 string filename = p.filename().string();
-                shared_ptr<Fits> hdr( new Fits( p.string() ) );
-                const vector<string>& cards = hdr->primaryHDU.cards;
-                int datamax = Fits::getValue<int>( cards, "DATAMAX" );
-                float g = Fits::getValue<float>( cards, "DETGAIN" );
-                float e = Fits::getValue<float>( cards, "TEXPOSUR" );
-                size_t w = hdr->dimSize(0);
-                size_t h = hdr->dimSize(1);
-                bpx::ptime t = Fits::getValue<bpx::ptime>( cards, "DATE-OBS" );
-                CalibSets& cs = getCalibSet( w, h, datamax, e, g );
-                
-                CalibFile cf( p.string(), t );
-                
-                if( filename.find("dark_") == 0 ) {
-                    auto ret = cs.dd.emplace( cf );
-                    if( !ret.second ) {
-                        // do we want/need to modify anything if there is a collision ?
-                    }
-                } else if ( filename.find("flat_") == 0) {
-                    auto ret = cs.ff.emplace( cf );
-                    if( !ret.second ) { 
-                        // do we want/need to modify anything if there is a collision ?
+                bool isDarkFile = filename.find("dark_") == 0;
+                bool isFlatFile = filename.find("flat_") == 0;
+                if( isDarkFile || isFlatFile ) {
+                    shared_ptr<Fits> hdr( new Fits( p.string() ) );
+                    const vector<string>& cards = hdr->primaryHDU.cards;
+                    int datamax = Fits::getValue<int>( cards, "DATAMAX" );
+                    float g = Fits::getValue<float>( cards, "DETGAIN" );
+                    float e = Fits::getValue<float>( cards, "TEXPOSUR" );
+                    size_t w = hdr->dimSize(0);
+                    size_t h = hdr->dimSize(1);
+                    bpx::ptime t = Fits::getValue<bpx::ptime>( cards, "DATE-OBS" );
+                    CalibSets& cs = getCalibSet( w, h, datamax, e, g );
+                    
+                    CalibFile cf( p.string(), t );
+                    
+                    if( isDarkFile ) {
+                        auto ret = cs.dd.emplace( cf );
+                        if( !ret.second ) {
+                            // do we want/need to modify anything if there is a collision ?
+                        }
+                    } 
+                    if ( isFlatFile ) {
+                        auto ret = cs.ff.emplace( cf );
+                        if( !ret.second ) { 
+                            // do we want/need to modify anything if there is a collision ?
+                        }
                     }
                 }
             } catch( ... ) {}
