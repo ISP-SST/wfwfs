@@ -211,12 +211,12 @@ void FitsWriter::save( const string& filename, size_t& next_frame, int nF ) {
 
     int cnt(0);
     while( cnt < nframes ) {
-        Frame& f = fq.getFrame( next_frame, true );
-        if( next_frame && (f.id != next_frame) ) {
-            cout << "Requested id = " << next_frame << " but got id = " << f.id << endl;
+        LockedFrame lf( fq.getFrame( next_frame, true ) );
+        if( next_frame && (lf.frame.id != next_frame) ) {
+            cout << "Requested id = " << next_frame << " but got id = " << lf.frame.id << endl;
         }
-        next_frame = f.id+1;
-        push( f );
+        next_frame = lf.frame.id+1;
+        push( lf.frame );
         cnt++;
     }
     

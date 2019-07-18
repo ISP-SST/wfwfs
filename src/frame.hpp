@@ -26,6 +26,7 @@
 #include "cell.hpp"
 #include "functions.hpp"
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <map>
@@ -38,12 +39,15 @@ namespace wfwfs {
 
     struct Frame {
         
-        Frame() : data(nullptr), hist(nullptr), stats(1,{0}) {}
+        Frame() : data(nullptr), uc(0), hist(nullptr), stats(1,{0}) {}
+        Frame( Frame&& f ) : timestamp(f.timestamp), data(f.data), id(f.id), offset(f.offset),
+            uc(f.uc.load()), hist(f.hist), stats(f.stats) {}
         
         boost::posix_time::ptime timestamp;
         uint8_t* data;
         size_t id;
         size_t offset;
+        std::atomic<int> uc;    // Usage count, for preventing data-mangling.
         
         // stats
         uint32_t* hist;
@@ -55,6 +59,14 @@ namespace wfwfs {
 
     };
 
+    struct LockedFrame {
+        LockedFrame( Frame& f ) : frame(f) { frame.uc++; };
+        LockedFrame( const LockedFrame& lf ) : frame(lf.frame) { frame.uc++; };
+        LockedFrame( LockedFrame&& ) = delete;
+        ~LockedFrame() { frame.uc--; };
+        Frame& frame;
+    };
+    
     struct FrameQueue {
         
         size_t frameSize;
@@ -72,7 +84,6 @@ namespace wfwfs {
         std::condition_variable cond;
         
         std::vector<Frame>::iterator current_;
-        std::vector<Frame>::iterator next_;
         
         FrameQueue();
         void resize( size_t w, size_t h, size_t nF, size_t d=8 );

@@ -97,7 +97,7 @@ save {
     nframes = 1000
     frames_per_file = 20
     compress = 1
-    min_interval = 3600
+    min_interval = 10800
 }
 save {
     name = calib/%DATE%/darks/%TIME%/darks_%FRAMENUMBER%.fits

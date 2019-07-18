@@ -460,7 +460,6 @@ void Daemon::init(void) {
     seeing.start();
 
     start_cam();
-
     
 }
 
@@ -582,18 +581,18 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
     
     string reply = boost::str( boost::format("OK image %lu %d %d %d %d %d") % imgSize % x1 % y1 % x2 % y2 % scale );
     
-    Frame& f = fqueue.getFrame( 0 );
+    LockedFrame lf( fqueue.getFrame( 0 ) );
     
     size_t histSize(0);
     size_t histPixels(0);
     int histMask(0);
-    if( !f.hist ) do_histo = false;
+    if( !lf.frame.hist ) do_histo = false;
     
     if( do_histo ) {
         reply += " histogram";
         histSize = (1 << fqueue.depth);
         histMask = histSize-1;
-        std::fill_n( f.hist, histSize, 0 );
+        std::fill_n( lf.frame.hist, histSize, 0 );
     }
     
     size_t blockSize = imgSize + histSize * sizeof(uint32_t);
@@ -605,7 +604,7 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
     int maxval = (1 << fqueue.depth) - 1;
     
     if( fqueue.depth > 8 ) {
-        uint16_t *in = reinterpret_cast<uint16_t*>( f.data );
+        uint16_t *in = reinterpret_cast<uint16_t*>( lf.frame.data );
         uint16_t *p = reinterpret_cast<uint16_t*>( buf.get() );
         for(int y = y1 * scale; y < y2 * scale; y += scale) {
             for(int x = x1 * scale; x < x2 * scale; x += scale) {
@@ -618,14 +617,14 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
                     }
                 }
                 if( do_histo ) {
-                    f.hist[ *p&histMask ]++;
+                    lf.frame.hist[ *p&histMask ]++;
                     histPixels++;
                 }
                 p++;
             }
         }
     } else {
-        uint8_t *in = (uint8_t *)f.data;
+        uint8_t *in = (uint8_t *)lf.frame.data;
         uint8_t *p = buf.get();
         for(int y = y1 * scale; y < y2 * scale; y += scale) {
             for(int x = x1 * scale; x < x2 * scale; x += scale) {
@@ -638,7 +637,7 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
                     }
                 }
                 if( do_histo ) {
-                    f.hist[ *p&histMask ]++;
+                    lf.frame.hist[ *p&histMask ]++;
                     histPixels++;
                 }
                 p++;
@@ -648,7 +647,7 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
 
     if( histSize ) {
         uint32_t* histPtr = reinterpret_cast<uint32_t*>( buf.get()+imgSize );
-        copy_n( f.hist, histSize, histPtr );
+        copy_n( lf.frame.hist, histSize, histPtr );
     }
 
     if( connection ) {
@@ -1631,12 +1630,12 @@ int Daemon::accumulate( Array<uint32_t>& acc, size_t n ) {
         broadcast( "state", "OK state waiting" );
         size_t id(0);
         while( n-- ) {
-            Frame& f = fqueue.getFrame( id, true );
-            if( id && (f.id != id) ) {
-                cout << "Requested id = " << id << " but got id = " << f.id << endl;
+            LockedFrame lf( fqueue.getFrame( id, true ) );
+            if( id && (lf.frame.id != id) ) {
+                cout << "Requested id = " << id << " but got id = " << lf.frame.id << endl;
             }
-            id = f.id+1;
-            fqueue.addFrame( f, acc.get() );
+            id = lf.frame.id+1;
+            fqueue.addFrame( lf.frame, acc.get() );
             cnt++;
         }
         broadcast( "state", "OK state ready" );
@@ -1860,11 +1859,11 @@ void Daemon::thumbnail( TcpConnection::Ptr conn ) {
     xoff = (width - step * 31) / 2;
     yoff = (height - step * 31) / 2;
 
-    Frame& f = fqueue.getFrame( 0 );    // get latest frame
+    LockedFrame lf( fqueue.getFrame( 0 ) );    // get latest frame
     if( depth > 8 ) {
         int shift = (depth - 8);
         for(int y=0; y<32; ++y) {
-            uint16_t* f_row = reinterpret_cast<uint16_t*>(f.data) + (y*step+yoff)*width + xoff;
+            uint16_t* f_row = reinterpret_cast<uint16_t*>(lf.frame.data) + (y*step+yoff)*width + xoff;
             for(int x=0; x<32; ++x ) {
                 out[x] = f_row[x * step] >> shift;
             }
@@ -1872,7 +1871,7 @@ void Daemon::thumbnail( TcpConnection::Ptr conn ) {
         }
     } else {
         for( int y=0; y<32; ++y ) {
-            uint8_t* f_row = f.data + (y*step+yoff)*width + xoff;
+            uint8_t* f_row = lf.frame.data + (y*step+yoff)*width + xoff;
             for(int x=0; x < 32; ++x ) {
                 out[x] = f_row[x * step];
             }

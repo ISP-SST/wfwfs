@@ -49,8 +49,6 @@ void FrameQueue::resize( size_t w, size_t h, size_t nF, size_t bitdepth ) {
     
     if( (newFrameSize == frameSize) && (newBlockSize == blockSize) ) return;
     
-    next_ = current_ = frames.end();
-    
     if( newBlockSize == 0 ) {
         data.reset();
         hist.reset();
@@ -76,28 +74,31 @@ void FrameQueue::resize( size_t w, size_t h, size_t nF, size_t bitdepth ) {
         histPtr += histMax;
         f.offset = o++;
     }
-    
-    next_ = frames.begin();
-    
+
+    current_ = frames.end();
 }
 
 
 Frame& FrameQueue::getEmpty( void ) {
     
     lock_guard<mutex> lock( mtx );
-    
-    if( frames.empty() || next_ == frames.end() ) {
+
+    if( frames.empty() ) {
         throw runtime_error("The FrameQueue is empty, can not get Frame!");
     }
     
-    current_ = next_++;
-    if( next_ == frames.end() ) {
-        next_ = frames.begin();
+    auto start_ = current_;
+    while( true ) {
+        if( current_ == frames.end() ) current_ = frames.begin();
+        else current_++;
+        if( current_ == start_ ) throw runtime_error("The FrameQueue is all in use, can not get Frame!");
+        if( current_ == frames.end() || current_->uc ) continue;
+        break; // if we get here current_ can be returned.
     }
 
     frames_by_id.erase( current_->id );
     current_->id = counter++;
-    
+
     return *current_;
     
 }
