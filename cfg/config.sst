@@ -78,7 +78,7 @@ save {
 save {
     name = hq_%DATE%/%TIME%/wfwfs_%FRAMENUMBER%.fits
     trigger = triangle 10
-    limit = 0.35
+    limit = 0.30
     delay = -10
     nframes = 100
     frames_per_file = 20
