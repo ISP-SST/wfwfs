@@ -53,10 +53,10 @@ namespace wfwfs {
             std::map<boost::posix_time::ptime, snapshot_t> data;
         };
         
-        typedef uint16_t data_t;
+        typedef int32_t data_t;
         typedef std::shared_ptr<data_t> dimm_data_t;
 
-        DimmSet( size_t i );
+        DimmSet( int i );
         DimmSet( const DimmSet& );
         DimmSet( DimmSet&& );
         
@@ -64,13 +64,14 @@ namespace wfwfs {
         
         void parsePropertyTree( boost::property_tree::ptree& cfg_ptree );
         
-        size_t get_id( void ) const { return id; }
+        int get_id( void ) const { return id; }
         const std::string& get_name( void ) const { return name; }
         
         Cell& get_ref_cell( void );
         std::vector<Cell>& get_cells( void ) { return cells; };
         const std::vector<Cell>& get_cells( void ) const { return cells; };
         bool adjust_cells(void);
+        void shift_cell( int cell_id, PointI shift );
         void shift_cells(PointI);
         void check( void );
         
@@ -97,6 +98,7 @@ namespace wfwfs {
         void calculate_r0( void );
         PointD calculate_r0( boost::posix_time::ptime& );
         PointD get_r0( boost::posix_time::ptime, uint16_t span ) const;
+        const std::map<int,float>& get_locks( void ) const { return locks; };
         std::chrono::high_resolution_clock::time_point get_next_time( void );
         
         void start( void );
@@ -105,7 +107,7 @@ namespace wfwfs {
 
     private:
         
-        const size_t id;
+        const int id;
         std::string name;
         mutable std::mutex mtx;
         std::thread trd;
@@ -114,6 +116,7 @@ namespace wfwfs {
         std::vector<Cell> cells;
         std::vector<Cell> subcells;
         std::map<int,PointF> avg_shifts;
+        std::map<int,float> locks;
         uint16_t ref_cell_size;
         uint16_t cell_size;
         uint16_t subcell_size;

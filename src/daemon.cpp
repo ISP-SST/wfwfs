@@ -1152,18 +1152,26 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
                     conn->syncWrite( ff.getData().get(), blockSize );
                 }
             } else if(what == "cells") {
-                size_t id = pop<int>( line );
-                replyStr = "OK cells " + seeing.get_cells( id );
+                int ds_id = -1;
+                if( !line.empty() ) {
+                    ds_id = pop<int>( line );
+                }
+                replyStr = "OK cells " + seeing.get_cells( ds_id );
             } else if(what == "shifts") {
                 replyStr = "OK shifts " + seeing.get_shifts();
             } else if(what == "saves") {
                 replyStr = FitsWriter::get_saves();
             } else if(what == "ashifts") {
-                size_t id = pop<int>( line );
-                replyStr = "OK ashifts " + seeing.get_ashifts( id );
+                int ds_id = -1;
+                if( !line.empty() ) {
+                    ds_id = pop<int>( line );
+                }
+                replyStr = "OK ashifts " + seeing.get_ashifts( ds_id );
             } else if(what == "vars") {
                 int duration = pop<int>( line );
                 replyStr = "OK vars " + seeing.get_vars( duration );
+            } else if(what == "lock" || what == "locks") {
+                replyStr = "OK locks " + seeing.get_locks();
             } else if(what == "meta") {
                 replyStr = boost::str( boost::format("OK meta %d") % meta_cards.size() );
                 int cnt(0);
@@ -1282,11 +1290,19 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
             s.x = pop<int>( line );
             boost::trim( line ); 
         }
-        size_t id = 0;
+        int cell_id = -1;
         if( !line.empty() ) {
-            id = pop<int>( line );
+            cell_id = pop<int>( line );
         }
-        replyStr = "OK shift " + seeing.shift_cells( s, id );
+        int ds_id = -1;
+        if( !line.empty() ) {
+            ds_id = pop<int>( line );
+        }
+        if( cell_id < 0 ) {
+            replyStr = "OK shift " + seeing.shift_cells( s, ds_id );
+        } else {
+            replyStr = "OK shift " + seeing.shift_cell( s, cell_id, ds_id );
+        }
         seeing.draw_cells( cell_mask );
     } else if( command == "sub") {
         string tag = popword( line );
@@ -1781,15 +1797,22 @@ void Daemon::update_gain( void ) {
     gg /= stats.mean*0.99;   // NOTE: the 0.99 is just to approximately compensate for the intensity decrease from dd subtraction
 
     try {
-        bfs::path tmpFN( outputdir );
-        tmpFN /= "calib/";
-        tmpFN /= "gaintable.fits";
+        string gt_name = "calib/%DATE%/gaintable_%TIME%.fits";
+        bfs::path tmpFN( make_filename(gt_name,-1,-1) );
+        maybeCreateDir( tmpFN.parent_path() );
         if( bfs::exists(tmpFN) && !bfs::remove(tmpFN) ) {
             cerr << boost::format( "Failed to remove existing file: %s" ) % tmpFN << endl;
             return;
         }
-
         Fits::write( tmpFN.string(), gg );
+        string calibPath = outputdir + "/calib/";
+        bfs::path link_name( calibPath + "gaintable.fits");
+        if( bfs::is_symlink(link_name) ) {
+            bfs::remove(link_name);
+        }
+        if( !bfs::exists(link_name) ) {
+            bfs::create_symlink( bfs::relative(tmpFN, calibPath), link_name );
+        }
     } catch( const std::exception& ) {
         // TODO
     } catch ( ... ) {

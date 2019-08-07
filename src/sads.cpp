@@ -91,9 +91,9 @@ bool wfwfs::sads( const T* __restrict__ ref_img, size_t ref_size, size_t ref_str
 
 
 }
-template bool wfwfs::sads( const uint16_t* __restrict__, size_t, size_t,
-                           const uint16_t* __restrict__, size_t, size_t,
-                           PointF&, uint64_t* __restrict__ );
+template bool wfwfs::sads( const uint16_t* __restrict__, size_t, size_t, const uint16_t* __restrict__, size_t, size_t, PointF&, uint64_t* __restrict__ );
+template bool wfwfs::sads( const int16_t* __restrict__, size_t, size_t, const int16_t* __restrict__, size_t, size_t, PointF&, uint64_t* __restrict__ );
+template bool wfwfs::sads( const int32_t* __restrict__, size_t, size_t, const int32_t* __restrict__, size_t, size_t, PointF&, uint64_t* __restrict__ );
 
 
 

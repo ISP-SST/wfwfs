@@ -43,7 +43,7 @@ namespace {
 }
 
 
-DimmSet::DimmSet(size_t i) : id(i), running(false), ref_cell_size(64), cell_size(76), subcell_size(0),
+DimmSet::DimmSet(int i) : id(i), running(false), ref_cell_size(64), cell_size(76), subcell_size(0),
                              max_shift(6), ref_cell(-1), interval(1), duration(2),
                              running_average(20.0), min_lock(0.1),
                              last_dimm(bpx::not_a_date_time),
@@ -123,10 +123,10 @@ void DimmSet::find_nominal_gridpoints( float scale, PointI detector_size ) {
     }
     
     // pre-calculate the separations of all subfield combinations
-    size_t nCells = cells.size();
-    for( size_t i(0); i<nCells; ++i ) {
+    int nCells = cells.size();
+    for( int i(0); i<nCells; ++i ) {
         if ( i == ref_cell ) continue;
-        for( size_t j(i+1); j<nCells; ++j ) {
+        for( int j(i+1); j<nCells; ++j ) {
             if ( j == ref_cell ) continue;
             PointI pair(i,j);
             pair_info& pi = differential_motion[ pair ];
@@ -197,7 +197,7 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
         cout << "Error: failed to parse subcell configuration." << endl;
     }
 
-    if( ref_cell > cells.size() ) ref_cell = 0;    // use first cell as reference if none was specified
+    if( (size_t)ref_cell > cells.size() ) ref_cell = 0;    // use first cell as reference if none was specified
 
 
 }
@@ -206,7 +206,7 @@ void DimmSet::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
 
 Cell& DimmSet::get_ref_cell( void ) {
 
-    if( (ref_cell >= 0) && (ref_cell < cells.size()) ) {
+    if( (ref_cell >= 0) && ((size_t)ref_cell < cells.size()) ) {
         return cells[ref_cell];
     } else if( !cells.empty() ) {   // if no ref_cell was supplied, use the first cell
         return cells[0];
@@ -234,6 +234,19 @@ bool DimmSet::adjust_cells( void ) {
         }
     }
     return changed;
+}
+
+
+void DimmSet::shift_cell( int cell_id, PointI shift ) {
+
+    if( cell_id < 0 ) {
+        for( auto& c: cells ) {
+            c.pos += shift;
+        }
+    } else if( (size_t)cell_id < cells.size() ) {
+        cells[cell_id].pos += shift;
+    }
+
 }
 
 
@@ -314,6 +327,7 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
             if( cellID == ref_cell ) continue;
             const data_t* cellPtr = dataPtr+ cellID*cs2;
             avg_shifts[cellID] *= mix;
+            locks[cellID] *= mix;
             PointF cell_shift(0,0);
             bool min_found = sads( refPtr, ref_cell_size, cell_size, cellPtr, cell_size, cell_size, cell_shift, tmp );
             if( cell_shift.max_abs() > max_shift ) {
@@ -321,6 +335,7 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
             }
             if( min_found ) {
                 avg_shifts[cellID] += cell_shift*(1.0-mix);
+                locks[cellID] += (1.0-mix);
             } else {
                 // if the minumum was not well-determined (at the edge of search-area), set to NAN
                 cell_shift = NAN;
@@ -373,7 +388,7 @@ void DimmSet::measure_shifts( uint64_t* tmp, double avg_interval ) {
 void DimmSet::calculate_dim( boost::posix_time::ptime ts, const map<int,PointF>& shifts, const PointI& ij ) {
 
     pair_info& pi = differential_motion[ ij ];
-    if( ts.is_not_a_date_time() || (pi.separation < 2*Seeing::diam_px) ) {
+    if( ts.is_not_a_date_time() /*|| (pi.separation < 2*Seeing::diam_px)*/ ) {
         // The DIMM method is only valid for distances larger than approximately twice the subaperture diameter,
         // so we don't accept any pair closer together than that. Or undefined timestamps.
         return;
@@ -404,15 +419,15 @@ void DimmSet::calculate_dim( boost::posix_time::ptime ts, const map<int,PointF>&
 void DimmSet::calculate_dims( void ) {
 
     lock_guard<mutex> lock( mtx );
-    size_t nCells = cells.size();
+    int nCells = cells.size();
 
     for( auto& it: cell_shifts ) {
         if( last_dimm.is_not_a_date_time() || it.first > last_dimm ) {
             last_dimm = it.first;
             const map<int,PointF>& shifts = it.second;
-            for( size_t i(0); i<nCells; ++i ) {
+            for( int i(0); i<nCells; ++i ) {
                 if( i == ref_cell ) continue;
-                for( size_t j(i+1); j<nCells; ++j ) {
+                for( int j(i+1); j<nCells; ++j ) {
                     if( j == ref_cell ) continue;
                     PointI cell_pair(i,j);
                     if( subcells.empty() ) {
@@ -490,7 +505,7 @@ PointD DimmSet::calculate_r0( bpx::ptime& out ) {
     
     for( auto& dm: differential_motion ) {
         auto& pi = dm.second;
-        if( pi.separation < 2*Seeing::diam_px ) continue;
+        //if( pi.separation < 2*Seeing::diam_px ) continue;
         r0_cutoff += Seeing::apply_dimm_equations( variance_cutoff, pi.separation );
         // The DIMM method is only valid for distances larger than 2x the subaperture diameter.
         

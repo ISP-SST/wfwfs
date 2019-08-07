@@ -251,21 +251,23 @@ void FitsWriter::thread_run(void) {
     if( do_compress ) {
         cData.reset( new uint8_t[ fq.frameSize ] );		// compressed storage of the same size as a raw frame
     }
-    unique_lock<mutex> lock(queueMtx);
+
     while( running ) {
         if( (f = pop()) ) {
+            unique_lock<mutex> lock(queueMtx);
             int ind = index;
             index += 2;
             if( do_acc ) {
                 fq.addFrame( f.get(), acc.get() );
                 frame_count++;
             }
+            lock.unlock();
             if( do_write ) {
                 if( do_compress ) {
-                    lock.unlock();
                     int frameOffset(0);
+                    int16_t* tmpPtr = reinterpret_cast<int16_t*>(f.get());
                     // TODO: set blocksize to width (i.e. process one row at a time) when/if the v. 4.0 FITS standard allows it.
-                    int cSize = rice_comp16( reinterpret_cast<int16_t*>(f.get()), npixels, cData.get(), fq.frameSize, 32 );
+                    int cSize = rice_comp16( tmpPtr, npixels, cData.get(), fq.frameSize, 32 );
                     if( cSize > 0 ) {
                         lock_guard<mutex> wlock(writeMtx);
                         frameOffset = lseek( fd, 0, SEEK_CUR );
@@ -298,11 +300,11 @@ void FitsWriter::thread_run(void) {
                                      (ind/2), count, fq.frameSize, strerror(errno) );
                         }
                     }
-                    lock.lock();
                 }
             }
             return_buf( f );
         } else {
+            unique_lock<mutex> lock(queueMtx);
             cond.wait(lock);
         }
     }
@@ -345,6 +347,7 @@ void FitsWriter::push( void* data, bpx::ptime ts ) {
 
 
 shared_ptr<uint8_t> FitsWriter::pop() {
+    lock_guard<mutex> lock(queueMtx);
     if( frames.empty() ) return nullptr;
     shared_ptr<uint8_t> ret = frames.front();
     frames.pop_front();
@@ -577,6 +580,7 @@ std::shared_ptr<uint8_t> FitsWriter::get_buf( size_t N ) {
 void FitsWriter::return_buf( std::shared_ptr<uint8_t>& buf ) {
     lock_guard<mutex> block(bufMtx);
     buffers.push_back(buf);
+    buf.reset();
 }
 
 

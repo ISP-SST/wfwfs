@@ -44,6 +44,8 @@ float Seeing::lambda(500e-9);
 double Seeing::radians_per_pixel(0);
 double Seeing::dimm_K(0);
 
+float Seeing::int_weight(1.0);
+
 
 Seeing::Seeing( void ) : dsID(1), avg_intensity(0.0) {
 
@@ -138,6 +140,7 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
                 outPtr += ds.get_max_shift()*(cs+1);
             }
             PointI pos = c.pos;
+            double avg_k_x(0.0), avg_k_y(0.0);
             pos -= this_cell_size/2;
             for( size_t y(0); y < this_cell_size; ++y ) {    // for each cell-row
                 size_t offset = (pos.y+y)*stride + pos.x;
@@ -147,12 +150,30 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
                     std::copy_n( in+offset, this_cell_size, outPtr );
                 }
                 cell_sum = std::accumulate( outPtr, outPtr+this_cell_size, cell_sum );
+                    for( size_t x(0); x < this_cell_size; ++x ) {
+                        if( y ) avg_k_y += (outPtr[x] - outPtr[x-cs]);
+                        if( x ) avg_k_x += (outPtr[x] - outPtr[x-1]);
+                    }
                 n_cell_summed += this_cell_size;
                 outPtr += cs;
             }
             total_sum += cell_sum;
             nTotalSummed += n_cell_summed;
             if( n_cell_summed ) cell_sum /= n_cell_summed;
+                outPtr = out + ds_offset + c_offset;
+                if( n == ds.get_ref_cell_id() ) {
+                    outPtr += ds.get_max_shift()*(cs+1);
+                }
+                avg_k_y /= this_cell_size*this_cell_size;
+                avg_k_x /= this_cell_size*this_cell_size;
+                int half_cell_size = this_cell_size/2; // coordinate for mid-point    p = x*avg_k_x 
+                for( int y(0); y < (int)this_cell_size; ++y ) {    // for each cell-row
+                    double delta_y = (y-half_cell_size)*avg_k_y;
+                    for( int x(0); x < (int)this_cell_size; ++x ) {
+                        outPtr[x] -= (x-half_cell_size)*avg_k_x + delta_y + cell_sum;     // subtract plane & avg
+                    }
+                    outPtr += cs;
+                }
             c_offset += imgStride;
         }
         ds_offset += c_offset;
@@ -164,7 +185,7 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
     
     const float mix = 0.01;
     avg_intensity *= (1.0-mix);
-    avg_intensity += mix*total_sum;
+    avg_intensity += mix*total_sum*int_weight;
     
 }
 template void Seeing::copy_cell_data<uint8_t>( Frame&, float*, float*, size_t, int );
@@ -343,10 +364,10 @@ void Seeing::zero_avgs( void ) {
 }
 
 
-void Seeing::set_ravg( float r, size_t id  ) {
+void Seeing::set_ravg( float r, int ds_id  ) {
     
     for( auto& ds: dimm_sets ) {
-        if( !id || (id == ds.get_id()) ) {
+        if( (ds_id < 0) || (ds_id == ds.get_id()) ) {
             ds.set_ravg( r );
         }
     }
@@ -373,40 +394,53 @@ void Seeing::set_min_lock( float ml, std::string tag ) {
 }
 
 
-string Seeing::adjust_cells( size_t id ) {
+string Seeing::adjust_cells( int ds_id ) {
 
     bool changed(false);
     for( auto& ds: dimm_sets ) {
-        if( !id || (id == ds.get_id()) ) {
+        if( (ds_id < 0) || (ds_id == ds.get_id()) ) {
            changed |= ds.adjust_cells();
         }
     }
     if( changed ) {
-        return get_cells(id);
+        return get_cells(ds_id);
     }
     return "";
 }
 
 
-string Seeing::shift_cells( PointI s, size_t id ) {
+string Seeing::shift_cell( PointI s, int cell_id, int ds_id ) {
 
     for( auto& ds: dimm_sets ) {
-        if( !id || (id == ds.get_id()) ) {
-           ds.shift_cells(s);
+        if( (ds_id < 0) || (ds_id == ds.get_id()) ) {
+           ds.shift_cell(cell_id,s);
         }
     }
 
-    return get_cells(id);
+    return get_cells(ds_id);
 
 }
 
 
-string Seeing::get_cells( size_t id ) const {
+string Seeing::shift_cells( PointI s, int ds_id ) {
+
+    for( auto& ds: dimm_sets ) {
+        if( (ds_id < 0) || (ds_id == ds.get_id()) ) {
+           ds.shift_cells(s);
+        }
+    }
+
+    return get_cells(ds_id);
+
+}
+
+
+string Seeing::get_cells( int ds_id ) const {
     
     string ret;
     
     for( auto& ds: dimm_sets ) {
-        if( !id || (id == ds.get_id()) ) {
+        if( (ds_id < 0) || (ds_id == ds.get_id()) ) {
             ret += "\n";
             ret += printArray( ds.get_cells(), ds.get_name() );
         }
@@ -433,11 +467,11 @@ string Seeing::get_shifts( void ) const {
 }
 
 
-string Seeing::get_ashifts( size_t id ) const {
+string Seeing::get_ashifts( int ds_id ) const {
     
     string ret;
     for( auto& ds: dimm_sets ) {
-        if( !id || (id == ds.get_id()) ) {
+        if( (ds_id < 0) || (ds_id == ds.get_id()) ) {
             ret += "\n";
             ret += ds.get_name() + "=[";
             for( auto& as: ds.get_avg_shifts() ) {
@@ -472,6 +506,22 @@ string Seeing::get_vars( int duration ) const {
     return ret;
 }
 
+
+string Seeing::get_locks( void ) const {
+    
+    string ret;
+    for( auto& ds: dimm_sets ) {
+        auto& locks = ds.get_locks();
+        ret += "\n";
+        ret += ds.get_name() + "=[";
+        for( auto& l: locks ) {
+            ret += to_string(l.first) + ":" + to_string(l.second)+ ",";
+        }
+        ret += "]";
+    }
+    
+    return ret;
+}
 
 
 template <typename T>

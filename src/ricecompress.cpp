@@ -234,7 +234,6 @@ namespace {
 
     __attribute__ ((target ("default")))
     uint8_t* crunch_block( const uint32_t* __restrict__ block, size_t blockSize, uint8_t* __restrict__ ptr, uint8_t& __restrict__ offset, uint8_t split ) {
-        //cout << "." << flush;
         const uint32_t unary1 = (1<<split);
         const uint32_t fsmask = unary1 - 1;
         const uint8_t sh = (31-split);
@@ -244,12 +243,15 @@ namespace {
             offset = (tmp1&7);
             const upack_t tmp2 = ((block[j]&fsmask)|unary1)<<(sh-offset);
             const uint32_t tmp3 = offset+split+1;       // we are setting the unary "1"-bit together with the entropy bits, hence +1
+            offset = tmp3&7;
             //*reinterpret_cast<uint32_t*>(ptr) |= htobe32( tmp2.u32[0] );      // this is slower than the below byte-copy
             *ptr |= tmp2.u8[3];
-            *(ptr+1) |= tmp2.u8[2];     // needed when tmp3 > 7
-            //*(ptr+2) |= tmp2.u8[1];   // needed when tmp3 > 15
-            offset = tmp3&7;
-            ptr += tmp3>>3;
+            if( tmp3 > 7 ) {
+                *(++ptr) |= tmp2.u8[2];
+                if( tmp3 > 15 ) {
+                    *(++ptr) |= tmp2.u8[1];
+                }
+            }
         }
         return ptr;
     }
@@ -366,12 +368,11 @@ int wfwfs::rice_decomp16( const uint8_t* in, size_t inSize, int16_t* out, size_t
     const int16_t* __restrict__ outEnd = out+outSize;
     
 
-    uint32_t* __restrict__ diffPtr;
-
-    std::unique_ptr<uint32_t[]> diff;
+    uint32_t* diff = nullptr;
+    uint32_t* diffPtr = nullptr;
     try {
-        diffPtr = new uint32_t[ blockSize ];
-        diff.reset( diffPtr );
+        diff = new uint32_t[ 2*blockSize ];
+        diffPtr = diff;
     } catch ( const std::bad_alloc& ) {
         printf( "rice_comp16: bad_alloc." );
         return(-1);
@@ -403,7 +404,7 @@ int wfwfs::rice_decomp16( const uint8_t* in, size_t inSize, int16_t* out, size_t
             outPtr += thisBlockSize;
             continue;
         } else if( split >= max_entropy_bits ) {
-            diffPtr = diff.get();
+            diffPtr = diff;
             if( offset ) {
                 const uint8_t sh = (8-offset);
                 for ( size_t j=0; j<(thisBlockSize<<1); ) {
@@ -424,7 +425,7 @@ int wfwfs::rice_decomp16( const uint8_t* in, size_t inSize, int16_t* out, size_t
             inPtr += thisBlockSize * sizeof(int16_t);
         } else {
 
-            diffPtr = diff.get();
+            diffPtr = diff;
             split--;    // split+1 was stored.
             const uint32_t splitMask = (1<<split) - 1;
 
@@ -464,7 +465,7 @@ int wfwfs::rice_decomp16( const uint8_t* in, size_t inSize, int16_t* out, size_t
         }
 
         // convert diff back to values.
-        diffPtr = diff.get();
+        diffPtr = diff;
 
         for ( size_t j=0; j<thisBlockSize; j++ ) {
             int32_t d = *diffPtr++;
@@ -478,6 +479,8 @@ int wfwfs::rice_decomp16( const uint8_t* in, size_t inSize, int16_t* out, size_t
         }
     }
     
-    return 0;
+    delete[] diff;
+    
+    return static_cast<int>(outPtr-out);
 }
 

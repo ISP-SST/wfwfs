@@ -71,15 +71,17 @@ namespace wfwfs {
         void set_image_scale( float s ) { arcsecs_per_pixel = s; precalculate(); }
         void set_diam( float d ) { diam = d; precalculate(); }
         void set_lambda( float l ) { lambda = l; precalculate(); }
-        void set_ravg( float r, size_t id=0 );
+        void set_ravg( float r, int ds_id=-1 );
         void set_min_lock( float ml, std::string tag="" );
         
-        std::string adjust_cells( size_t id=0 );
-        std::string shift_cells( PointI, size_t id=0 );
-        std::string get_cells( size_t id=0 ) const;
+        std::string adjust_cells( int ds_id=-1 );
+        std::string shift_cell( PointI, int cell_id, int ds_id=-1 );
+        std::string shift_cells( PointI, int ds_id=-1 );
+        std::string get_cells( int ds_id=-1 ) const;
         std::string get_shifts( void ) const;
-        std::string get_ashifts( size_t id=0 ) const;
+        std::string get_ashifts( int ds_id=-1 ) const;
         std::string get_vars( int duration=0 ) const;
+        std::string get_locks( void ) const;
         
         float get_avg_intensity( void ) const { return avg_intensity; }
         
@@ -103,6 +105,8 @@ namespace wfwfs {
         static float lambda;                // Wavelength               (m)                 default = 500e-9
         static double radians_per_pixel;    // Pre-computed factor for converting units from pixels to radians
         static double dimm_K;               // pre-computed factor used in the DIMM equations
+        
+        static float int_weight;
         
     private:
 
