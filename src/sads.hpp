@@ -38,29 +38,34 @@ namespace wfwfs {
         }
         
         // Subpixel interpolation using a quadratic fit
-        const T* row2 = data + y*stride + x - 1;
-        const T* row3 = row2 + stride;
-        const T* row1 = row2 - stride;
+        const T* row1 = data + y*stride + x - 1;
+        const T* row2 = row1 + stride;
+        const T* row0 = row1 - stride;
         
-        const double row10s = static_cast<double>( row1[0] * row1[0] );
-        const double row11s = static_cast<double>( row1[1] * row1[1] );
-        const double row12s = static_cast<double>( row1[2] * row1[2] );
-        const double row20s = static_cast<double>( row2[0] * row2[0] );
-        const double row21s = static_cast<double>( row2[1] * row2[1] );
-        const double row22s = static_cast<double>( row2[2] * row2[2] );
-        const double row30s = static_cast<double>( row3[0] * row3[0] );
-        const double row31s = static_cast<double>( row3[1] * row3[1] );
-        const double row32s = static_cast<double>( row3[2] * row3[2] );
+        const double d00 = static_cast<double>( row0[0] );
+        const double d01 = static_cast<double>( row0[1] );
+        const double d02 = static_cast<double>( row0[2] );
+        const double d10 = static_cast<double>( row1[0] );
+        const double d11 = static_cast<double>( row1[1] );
+        const double d12 = static_cast<double>( row1[2] );
+        const double d20 = static_cast<double>( row2[0] );
+        const double d21 = static_cast<double>( row2[1] );
+        const double d22 = static_cast<double>( row2[2] );
         
-        const double a2 = (row22s - row20s) / 2.0;
-        const double a3 = (row22s - 2*row21s + row20s);
-        const double a4 = (row31s - row11s) / 2.0;
-        const double a5 = (row31s - 2*row21s + row11s);
-        const double a6 = (row32s - row30s - row12s + row10s) / 4.0;
-        const double a7 = 1.0 / (a6*a6 - a3 * a5);
+        const double a0 = (d21 - d01) * 0.5;
+        const double a1 = (d21 - 2*d11 + d01);
+        const double a2 = (d12 - d10) * 0.5;
+        const double a3 = (d12 - 2*d11 + d10);
+        const double a4 = (d22 - d20 - d02 + d00) * 0.25;
+        const double den = 1.0 / (a4*a4 - a3*a1);
 
-        x_delta = (a2 * a5 - a4 * a6) * a7;
-        y_delta = (a3 * a4 - a2 * a6) * a7;
+        x_delta = (a2*a1 - a0*a4)*den;
+        y_delta = (a3*a0 - a2*a4)*den;
+        
+        if( fabs(x_delta) > 0.5 || fabs(y_delta) > 0.5 ) {
+            x_delta = -a2/a3;
+            y_delta = -a0/a1;
+        }
 
     }
 
