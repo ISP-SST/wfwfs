@@ -188,13 +188,36 @@ void FitsWriter::save( const string& filename, size_t& next_frame, int nF ) {
     offsets.assign( 2*nframes, 0 );
     frames.clear();
     times.clear();
+    
+    unique_lock<mutex> wlock(writeMtx);
+    
+    running = true;
+    for( int i=0; i<nthreads; ++i ) {
+        threads.push_back( thread(bind( &FitsWriter::thread_run, this )) );
+    }
+    
+    std::thread qthread([&](){
+        int cnt(0);
+        while( cnt < nframes ) {
+            LockedFrame lf( fq.getFrame( next_frame, true ) );
+            if( next_frame && (lf.frame.id != next_frame) ) {
+                cout << "Requested id = " << next_frame << " but got id = " << lf.frame.id << endl;
+            }
+            next_frame = lf.frame.id+1;
+            push( lf.frame );
+            cnt++;
+        }
+    });
 
-    if( do_write ) {        
-        open_file( filename, nframes*fq.frameSize+50*2880 );
+    if( do_write ) {
+        
+        open_file( filename, /*nframes*fq.frameSize+*/50*2880 );
+
         bfs::path fnPath(filename);
         Fits::updateCard( extra_meta, Fits::makeCard<string>( "FILENAME", fnPath.filename().string() ) );
 
         makeHdr();
+
         hdrEnd = ((hdr->primaryHDU.cards.size()-1)/36 + 1)*2880;		// end of primary header, and possibly start of compressed header
         dataStart = hdrEnd;
         if ( do_compress ) {
@@ -203,26 +226,13 @@ void FitsWriter::save( const string& filename, size_t& next_frame, int nF ) {
         }
         lseek( fd, dataStart, SEEK_SET );	// set file-pointer to where the frames should be saved.
     }
-    
-    running = true;
-    for( int i=0; i<nthreads; ++i ) {
-        threads.push_back( thread(bind( &FitsWriter::thread_run, this )) );
-    }
+    wlock.unlock();
 
-    int cnt(0);
-    while( cnt < nframes ) {
-        LockedFrame lf( fq.getFrame( next_frame, true ) );
-        if( next_frame && (lf.frame.id != next_frame) ) {
-            cout << "Requested id = " << next_frame << " but got id = " << lf.frame.id << endl;
-        }
-        next_frame = lf.frame.id+1;
-        push( lf.frame );
-        cnt++;
-    }
-    
+    qthread.join();
     wait();
 
-    if( do_write ) {        
+    if( do_write ) {
+        wlock.lock();
         close_file();
     }
     
@@ -237,8 +247,11 @@ void FitsWriter::wait( void ) {
         running = false;
     }
     cond.notify_all();
-    for( auto& t: threads ) t.join();
 
+    for( auto& t: threads ) {
+        cond.notify_all();      // keep notifying just in case the last thread had not made it to the conditional before the main-thread woke up from the while-loop.
+        t.join();
+    }
     threads.clear();
     
 }
@@ -247,9 +260,9 @@ void FitsWriter::wait( void ) {
 void FitsWriter::thread_run(void) {
 
     shared_ptr<uint8_t> f;
-    unique_ptr<uint8_t[]> cData;
+    shared_ptr<uint8_t> cData;
     if( do_compress ) {
-        cData.reset( new uint8_t[ fq.frameSize ] );		// compressed storage of the same size as a raw frame
+        cData = get_buf( fq.frameSize );		// compressed storage of the same size as a raw frame
     }
 
     while( running ) {
@@ -273,8 +286,7 @@ void FitsWriter::thread_run(void) {
                         frameOffset = lseek( fd, 0, SEEK_CUR );
                         int count = write( fd, cData.get(), cSize );
                         if( count != cSize ) {
-                            fprintf( stderr, "FitsWriter: write failed for frame #%d, count=%d  cSize=%d: %s\n",
-                                     (ind/2), count, cSize, strerror(errno) );
+                            fprintf( stderr, "FitsWriter: write failed for frame #%d, count=%d  cSize=%d: %s\n", (ind/2), count, cSize, strerror(errno) );
                         }
                     } else {
                         fprintf( stderr, "FitsWriter: compression failed for frame #%d.\n", (ind/2) );
@@ -283,8 +295,8 @@ void FitsWriter::thread_run(void) {
                     lock.lock();
                     offsets[ind] = cSize;
                     offsets[ind+1] = frameOffset;
-                } else {
                     lock.unlock();
+                } else {
                     if( bytes_per_pixel == 2 ) {
                         int16_t* ptr = reinterpret_cast<int16_t*>( f.get() );
                         for( int i=0; i<npixels; ++i ) ptr[i] = htobe16(ptr[i]);
@@ -296,8 +308,7 @@ void FitsWriter::thread_run(void) {
                         lock_guard<mutex> wlock(writeMtx);
                         size_t count = write( fd, f.get(), fq.frameSize );
                         if( count != fq.frameSize ) {
-                            fprintf( stderr, "FitsWriter: write failed for frame #%d, count=%zu  frameSize=%zu: %s\n",
-                                     (ind/2), count, fq.frameSize, strerror(errno) );
+                            fprintf( stderr, "FitsWriter: write failed for frame #%d, count=%zu  frameSize=%zu: %s\n", (ind/2), count, fq.frameSize, strerror(errno) );
                         }
                     }
                 }
@@ -307,6 +318,10 @@ void FitsWriter::thread_run(void) {
             unique_lock<mutex> lock(queueMtx);
             cond.wait(lock);
         }
+    }
+
+    if( cData ) {
+        return_buf( cData );
     }
 
 }
