@@ -22,6 +22,8 @@
  ***************************************************************************/
 #include "seeing.hpp"
 
+#include "utils.hpp"
+
 #include <numeric>
 
 #include <boost/algorithm/string.hpp>
@@ -140,7 +142,6 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
                 outPtr += ds.get_max_shift()*(cs+1);
             }
             PointI pos = c.pos;
-            double avg_k_x(0.0), avg_k_y(0.0);
             pos -= this_cell_size/2;
             for( size_t y(0); y < this_cell_size; ++y ) {    // for each cell-row
                 size_t offset = (pos.y+y)*stride + pos.x;
@@ -150,30 +151,24 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
                     std::copy_n( in+offset, this_cell_size, outPtr );
                 }
                 cell_sum = std::accumulate( outPtr, outPtr+this_cell_size, cell_sum );
-                    for( size_t x(0); x < this_cell_size; ++x ) {
-                        if( y ) avg_k_y += (outPtr[x] - outPtr[x-cs]);
-                        if( x ) avg_k_x += (outPtr[x] - outPtr[x-1]);
-                    }
                 n_cell_summed += this_cell_size;
                 outPtr += cs;
             }
             total_sum += cell_sum;
             nTotalSummed += n_cell_summed;
             if( n_cell_summed ) cell_sum /= n_cell_summed;
-                outPtr = out + ds_offset + c_offset;
-                if( n == ds.get_ref_cell_id() ) {
-                    outPtr += ds.get_max_shift()*(cs+1);
+            outPtr = out + ds_offset + c_offset;
+            if( n == ds.get_ref_cell_id() ) {
+                outPtr += ds.get_max_shift()*(cs+1);
+            }
+            vector<double> slopes = fitPlane( outPtr, this_cell_size, this_cell_size, cs );
+            for( int y(0); y < (int)this_cell_size; ++y ) {    // for each cell-row
+                double delta_y = y*slopes[1];
+                for( int x(0); x < (int)this_cell_size; ++x ) {
+                    outPtr[x] -= x*slopes[0] + delta_y + slopes[2];     // subtract plane & avg
                 }
-                avg_k_y /= this_cell_size*this_cell_size;
-                avg_k_x /= this_cell_size*this_cell_size;
-                int half_cell_size = this_cell_size/2; // coordinate for mid-point    p = x*avg_k_x 
-                for( int y(0); y < (int)this_cell_size; ++y ) {    // for each cell-row
-                    double delta_y = (y-half_cell_size)*avg_k_y;
-                    for( int x(0); x < (int)this_cell_size; ++x ) {
-                        outPtr[x] -= (x-half_cell_size)*avg_k_x + delta_y + cell_sum;     // subtract plane & avg
-                    }
-                    outPtr += cs;
-                }
+                outPtr += cs;
+            }
             c_offset += imgStride;
         }
         ds_offset += c_offset;
@@ -319,7 +314,7 @@ void Seeing::stop_logs( void ) {
 void Seeing::start( void ) {
     
     timestamp = bpx::second_clock::universal_time();
-    
+
     start_dimms();
     start_logs();
     start_saves();

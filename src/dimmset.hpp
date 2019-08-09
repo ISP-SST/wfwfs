@@ -53,7 +53,7 @@ namespace wfwfs {
             std::map<boost::posix_time::ptime, snapshot_t> data;
         };
         
-        typedef int32_t data_t;
+        typedef float data_t;
         typedef std::shared_ptr<data_t> dimm_data_t;
 
         DimmSet( int i );
