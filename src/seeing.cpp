@@ -533,36 +533,26 @@ string Seeing::get_locks( void ) const {
 
 template <typename T>
 void Seeing::draw_cell( Array<T>& img, PointI pos, uint16_t cell_size, bool mark ) const {
+    
+    PointI hs(cell_size/2);
+    PointI hs2 = hs*PointI(1,-1);
 
-    size_t stride = img.dimSize(1);
-    pos -= cell_size/2;
-    int offset = pos.y*stride + pos.x;
-    if( offset < 0 || (offset+cell_size*stride)>img.nElements() ) return;   // don't draw outside img
-    T* ptr = img.get() + offset;
-    for( size_t y=0; y<cell_size; ++y ) {
-        if( y > 1U && y+2 < cell_size ) {
-            ptr[0] = ptr[cell_size-1] = 1;
-            ptr[1] = ptr[cell_size-2] = 1;
-            if( mark ) {
-                ptr[y] = ptr[cell_size-2-y] = 1;
-            }
-        } else {
-            for( size_t x=0; x<cell_size; ++x ) {
-                ptr[x] = 1;
-            }
-        }
-        ptr += stride;
+    PointI c1 = pos + hs;
+    PointI c2 = pos + hs2;
+    PointI c3 = pos - hs;
+    PointI c4 = pos - hs2;
+    
+    draw_line( img, c1, c2, T(1), 2 );
+    draw_line( img, c1, c4, T(1), 2 );
+    draw_line( img, c3, c2, T(1), 2 );
+    draw_line( img, c3, c4, T(1), 2 );
+    if( mark ) {
+        draw_line( img, c1, c3, T(1), 3 );
+        draw_line( img, c2, c4, T(1), 3 );
     }
-    
-}
-
-namespace {
-    
-    const PointF base1( 0, 1 );                   // Define base-vectors for the microlense array .
-    const PointF base2( 0.5*sqrt(3), 0.5 );       // We assume a subfield is located approximately at the center of the CCD, hexagonal symmetry,
-                                                  // and that the main row is aligned horizontally.
 
 }
+
 
 template <typename T>
 void Seeing::draw_cells( Array<T>& img ) const {
@@ -577,19 +567,6 @@ void Seeing::draw_cells( Array<T>& img ) const {
             draw_cell( img, cells[i].pos, sz, is_ref );
         }
     }
-
-    for( int i=-5; i<5; ++i ) {
-        for( int j=-5; j<5; ++j ) {
-            PointF pos_px = base1*i + base2*j;
-            pos_px *= diam_px;
-            if( sqrt(pos_px.norm()) < 1040 ) {
-                pos_px += PointI(1040,1040);
-                draw_cell( img, pos_px, 2, false );
-            }
-        }
-    }
-
-
 }
 template void Seeing::draw_cells( Array<uint8_t>& ) const;
 

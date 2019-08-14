@@ -362,6 +362,37 @@ namespace wfwfs {
             }
 
         }
+        
+
+        template <typename T>
+        void draw_line( Array<T>& img, PointI pos1, PointI pos2, const T value=T(), size_t width=1 ) {
+
+            if( width == 0 ) return;
+            
+            PointD diff = pos2 - pos1;
+            size_t length = sqrt(diff.norm());
+            double nrm = 1.0/length;
+            size_t stride = img.dimSize(1);
+            T* ptr = img.get();
+            PointI delta(1,0);
+            if( fabs(diff.x) < fabs(diff.y) ) {
+                delta = PointI(0,1);
+            }
+            for( size_t w(0); w<width; ++w ) {
+                PointI pos = pos1;
+                if( w ) {
+                    pos += delta*((w+1)/2)*pow(-1.0,w+1);
+                    
+                }
+                for( size_t i(0); i<=length; ++i ) {
+                    PointI tmp = pos + diff*nrm*i;
+                    size_t offset = static_cast<size_t>(tmp.y*stride + tmp.x);
+                    if( offset>img.nElements() ) continue;
+                    ptr[offset] = value;
+                }
+            }
+        }
+
 
 
 
