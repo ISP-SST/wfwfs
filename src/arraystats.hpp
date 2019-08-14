@@ -33,19 +33,46 @@ namespace wfwfs {
     struct ArrayStats {
         typedef std::shared_ptr<ArrayStats> Ptr;
 
-        ArrayStats() : clip(-1), cutoff(-1), min(0), max(0), median(0), sum(0), sqr_sum(0), norm(0),
-                        mean(0), rms(0), stddev(0), noise(0), noiseRMS(0), hasInfinity(false) {}
-        template <typename T> void getMinMaxMean(const T* data, size_t count);
+        ArrayStats() : clip(-1), cutoff(-1), min(0), max(0), median(0), med25(0), med75(0), sum(0), sqr_sum(0), norm(0),
+                        mean(0), rms(0), stddev(0), noise(0), noiseRMS(0), nElements(0), hasInfinity(false) {}
+        
+        template <typename T>
+        void getMinMaxMean( const T* data, size_t sizeY, size_t sizeX, size_t stride, const uint8_t* mask=nullptr );
+        template <typename T>
+        void getMinMaxMean( const T* data, size_t sizeY, size_t sizeX, const uint8_t* mask=nullptr ) {
+            getMinMaxMean( data, sizeY, sizeX, sizeX, mask );
+        }
+        template <typename T> void getMinMaxMean(const T* data, size_t count, const uint8_t* mask=nullptr) {
+            getMinMaxMean( data, 1, count, count, mask );
+        }
         template <typename T> void getMinMaxMean(const wfwfs::Array<T>& data) {
-            if (data.dense()) getMinMaxMean(data.ptr(),data.nElements());
+            if( data.dense() ) getMinMaxMean( data.ptr(), data.nElements() );
             else {
                 wfwfs::Array<T> tmp;
                 data.copy(tmp);
                 getMinMaxMean(tmp.get(),data.nElements());
             }
         }
+        
+        template <typename T>
+        void getMedian( const T* data, size_t sizeY, size_t sizeX, size_t stride, const uint8_t* mask=nullptr );
+        template <typename T>
+        void getMedian( const T* data, size_t sizeY, size_t sizeX, const uint8_t* mask=nullptr ) {
+            getMedian( data, sizeY, sizeX, sizeX, mask );
+        }
+        template <typename T> void getMedian( const T* data, size_t count, const uint8_t* mask=nullptr ) {
+            getMedian( data, 1, count, count, mask );
+        }
+        template <typename T> void getMedian(const wfwfs::Array<T>& data) {
+            if( data.dense() ) getMedian( data.ptr(), data.nElements() );
+            else {
+                wfwfs::Array<T> tmp;
+                data.copy(tmp);
+                getMedian( tmp.get(), data.nElements() );
+            }
+        }
 
-        template <typename T> void getRmsStddev(const T* data, size_t count);
+        template <typename T> void getRmsStddev(const T* data, size_t count, const uint8_t* mask=nullptr);
         template <typename T> void getRmsStddev(const wfwfs::Array<T>& data) {
             if (data.dense()) getRmsStddev(data.ptr(),data.nElements());
             else {
@@ -65,9 +92,10 @@ namespace wfwfs {
 
         int clip;
         double cutoff;
-        double min, max, median;
+        double min, max, median, med25, med75;
         double sum, sqr_sum, norm, mean, rms, stddev;
         double noise, noiseRMS;
+        size_t nElements;
         bool hasInfinity;
 
     };
