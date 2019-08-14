@@ -1,4 +1,8 @@
 outputdir = /data/wfwfs
+; 0= naive (invert flat and cap to [0.1,4]), 1= global gain-generation, 2= generate gain for each subfield individually and then merge
+; 1/2 use a bit more sophistication to detect bad pixels.
+gain_method = 2
+subtract_plane
 frame_queue = 1000
 arcsecs_per_pixel = 0.21
 subaperture_diameter = 0.140
