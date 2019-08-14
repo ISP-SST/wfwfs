@@ -22,10 +22,13 @@
  ***************************************************************************/
 #include "utils.hpp"
 
+#include "arraystats.hpp"
+
 #include <functional>
 #include <map>
 #include <set>
 #include <math.h>
+#include <queue>
 
 #include <gsl/gsl_multifit.h>
 
@@ -51,20 +54,58 @@ namespace {
         return distMap;
     }
 
-
     template <typename T>
-    void maskConnected(T** data, uint8_t** mask, size_t sizeY, size_t sizeX, unsigned int yy, unsigned int xx, unsigned int y_start, unsigned int x_start, T threshold) {
-        if (yy >= sizeY || xx >= sizeX) return;
-        if ( !mask[yy][xx] && ((yy == y_start && xx == x_start) || data[yy][xx] > threshold)) {       // new point inserted, check neighbours
-            mask[yy][xx] = 1;
-            maskConnected(data, mask, sizeY, sizeX, yy + 1, xx, y_start, x_start, threshold);
-            maskConnected(data, mask, sizeY, sizeX, yy - 1, xx, y_start, x_start, threshold);
-            maskConnected(data, mask, sizeY, sizeX, yy, xx + 1, y_start, x_start, threshold);
-            maskConnected(data, mask, sizeY, sizeX, yy, xx - 1, y_start, x_start, threshold);
+    void maskConnected( const T** data, uint8_t** mask, size_t sizeY, size_t sizeX, unsigned int startY, unsigned int startX, T threshold) {
+        if (startY >= sizeY || startX >= sizeX) return;
+        if ( !mask[startY][startX] && (data[startY][startX] > threshold)) {       // new point inserted, check neighbours
+            mask[startY][startX] = 1;
+            maskConnected(data, mask, sizeY, sizeX, startY + 1, startX, threshold);
+            maskConnected(data, mask, sizeY, sizeX, startY - 1, startX, threshold);
+            maskConnected(data, mask, sizeY, sizeX, startY, startX + 1, threshold);
+            maskConnected(data, mask, sizeY, sizeX, startY, startX - 1, threshold);
         }
     }
 
 }
+
+
+template <typename T>
+void wfwfs::maskConnected2( const T* data, uint8_t* mask, size_t sizeY, size_t sizeX, unsigned int startY, unsigned int startX, T threshold ) {
+    
+    if ( startY >= sizeY || startX >= sizeX ) return;
+    
+    Array<uint8_t> tmpMask( sizeY, sizeX );
+    uint8_t* tmpPtr = tmpMask.get();
+    
+    size_t nEl = sizeX*sizeY;
+    std::transform( data, data+nEl, tmpPtr, [=](const T a) {
+        if( a < threshold ) return 0;
+        return 1;
+    });
+    
+    std::queue<size_t> offsets;
+    offsets.push( startY*sizeX+startX );
+    tmpPtr[ startY*sizeX+startX ] = 2;     // always set starting point.
+    while( !offsets.empty() ) {
+        size_t offset = offsets.front();
+        offsets.pop();
+        if( tmpPtr[ offset ] != 2 ) continue;
+        tmpPtr[ offset ] = 2;
+        if( (offset > 0) && tmpPtr[ offset+1 ] == 1 ) { offsets.push( offset+1 ); tmpPtr[ offset+1 ] = 2; }
+        if( tmpPtr[ offset-1 ] == 1 ) { offsets.push( offset-1 ); tmpPtr[ offset-1 ] = 2; }
+        if( (offset+sizeX < nEl) && tmpPtr[ offset+sizeX ] == 1 ) { offsets.push( offset+sizeX ); tmpPtr[ offset+sizeX ] = 2; }
+        if( (offset >= sizeX) && tmpPtr[ offset-sizeX ] == 1 ) { offsets.push( offset-sizeX ); tmpPtr[ offset-sizeX ] = 2; }
+    }
+    
+    std::transform( tmpPtr, tmpPtr+nEl, mask, [](const uint8_t a) {
+        if( a == 2 ) return 1;
+        return 0;
+    });
+    
+}
+template void wfwfs::maskConnected2( const float*, uint8_t*, size_t, size_t, unsigned int, unsigned int, float);
+template void wfwfs::maskConnected2( const uint8_t*, uint8_t*, size_t, size_t, unsigned int, unsigned int, uint8_t);
+
 
 template <typename T>
 void wfwfs::apodize( T* data, size_t n, const T& target ) {
@@ -171,12 +212,12 @@ template wfwfs::Array<double> wfwfs::fitPlane (const wfwfs::Array<double>&, bool
 
 
 template <typename T>
-void wfwfs::connectedRegion(T** data, uint8_t** mask, size_t sizeY, size_t sizeX, unsigned int y_start, unsigned int x_start, T threshold) {
+void wfwfs::connectedRegion( const T** data, uint8_t** mask, size_t sizeY, size_t sizeX, unsigned int y_start, unsigned int x_start, T threshold) {
     memset(*mask, 0, sizeY * sizeX);
-    maskConnected(data, mask, sizeY, sizeX, y_start, x_start, y_start, x_start, threshold);
+    maskConnected( data, mask, sizeY, sizeX, y_start, x_start, threshold );
 }
-template void wfwfs::connectedRegion(float**, uint8_t**, size_t, size_t, uint, uint, float);
-template void wfwfs::connectedRegion(double**, uint8_t**, size_t, size_t, uint, uint, double);
+template void wfwfs::connectedRegion(const float**, uint8_t**, size_t, size_t, uint, uint, float);
+template void wfwfs::connectedRegion(const double**, uint8_t**, size_t, size_t, uint, uint, double);
 
 
 template <typename T>
@@ -398,5 +439,276 @@ template void wfwfs::apodizeInPlace(int32_t**, size_t, size_t, size_t, size_t, s
 template void wfwfs::apodizeInPlace(float**, size_t, size_t, size_t, size_t, size_t, size_t);
 template void wfwfs::apodizeInPlace(double**, size_t, size_t, size_t, size_t, size_t, size_t);
 template void wfwfs::apodizeInPlace(complex_t**, size_t, size_t, size_t, size_t, size_t, size_t);
+
+
+void wfwfs::make_mask( cv::InputArray image, cv::InputOutputArray mask, double thres, int smooth, bool filterLarger, bool invert) {
+    
+    using namespace cv;
+    
+    Mat src = image.getMat();
+    Mat dst = mask.getMat();
+    
+    CV_Assert( !src.empty() );
+    CV_Assert( !dst.empty() );
+
+    Mat graySrc;
+    src.convertTo( graySrc, CV_32FC1 );
+    
+    threshold( graySrc, graySrc, thres, 1, THRESH_BINARY ); // THRESH_BINARY,THRESH_TOZERO
+    
+    double minValue, maxValue;
+    minMaxLoc( graySrc, &minValue, &maxValue );
+    if( maxValue == minValue ) {        // uniform input, no need to filter.
+        if( invert ) {
+            graySrc = 1 - graySrc;
+        }
+        graySrc.assignTo( dst, dst.type() );
+        return;
+    }
+
+    if( smooth < 2 && !invert ) {         // if no filtering was requested, return 
+        graySrc.assignTo( dst, dst.type() );
+        return;
+    }    
+    
+    Mat filteredMask( graySrc.rows, graySrc.cols, CV_8UC1 );
+    graySrc.convertTo( filteredMask, CV_8UC1, 1 );
+    
+    if( smooth > 1 ) {
+        Mat originalMask = filteredMask.clone();
+        // shape:  enum { MORPH_RECT, MORPH_CROSS, MORPH_ELLIPSE };
+        // operations: enum { MORPH_ERODE, MORPH_DILATE, MORPH_OPEN, MORPH_CLOSE, MORPH_GRADIENT, MORPH_TOPHAT, MORPH_BLACKHAT };
+        cv::Point anchor( smooth/2, smooth/2 );
+        Mat element = getStructuringElement( MORPH_RECT, Size( smooth, smooth ), anchor );
+        morphologyEx( filteredMask, filteredMask, MORPH_CLOSE, element, anchor, 1, BORDER_REFLECT_101 );
+        if( !(smooth & 1) ) anchor -= cv::Point( 1, 1 );    // move anchor-point for the reverse transform, so that asymmetry-shifts cancel
+        morphologyEx( filteredMask, filteredMask, MORPH_OPEN, element, anchor, 1, BORDER_REFLECT_101 ); 
+        bitwise_xor( filteredMask, originalMask, filteredMask );
+        if( filterLarger ) {
+            bitwise_or( 1-filteredMask, originalMask, filteredMask );
+        } else {
+            bitwise_xor( filteredMask, originalMask, filteredMask );
+        }
+    }
+    
+    if( invert ) {
+        filteredMask = 1 - filteredMask;
+    }
+    
+    filteredMask.assignTo( dst, dst.type() );
+
+}
+
+
+void wfwfs::morph_smooth( cv::InputOutputArray data, int smooth, bool filterLarger ) {
+    
+    using namespace cv;
+    
+    Mat dataMat = data.getMat();
+    CV_Assert( !dataMat.empty() );
+    
+    Mat tmpImg( dataMat.rows, dataMat.cols, CV_8UC1 );
+    dataMat.convertTo( tmpImg, CV_8UC1, 1 );
+    
+    if( smooth > 1 ) {
+        Mat originalMask = tmpImg.clone();
+//         if( invert ) {
+//             cv::bitwise_not( tmpImg, tmpImg );  
+//         }
+        // shape:  enum { MORPH_RECT, MORPH_CROSS, MORPH_ELLIPSE };
+        // operations: enum { MORPH_ERODE, MORPH_DILATE, MORPH_OPEN, MORPH_CLOSE, MORPH_GRADIENT, MORPH_TOPHAT, MORPH_BLACKHAT };
+        cv::Point anchor( smooth/2, smooth/2 );
+        Mat element = getStructuringElement( MORPH_RECT, Size( smooth, smooth ), anchor );
+        morphologyEx( tmpImg, tmpImg, MORPH_CLOSE, element, anchor, 1, BORDER_REFLECT_101 );
+        if( !(smooth & 1) ) anchor -= cv::Point( 1, 1 );    // move anchor-point for the reverse transform, so that asymmetry-shifts cancel
+        morphologyEx( tmpImg, tmpImg, MORPH_OPEN, element, anchor, 1, BORDER_REFLECT_101 ); 
+        bitwise_xor( tmpImg, originalMask, tmpImg );
+        if( filterLarger ) {
+            bitwise_or( 1-tmpImg, originalMask, tmpImg );
+        } else {
+            bitwise_xor( tmpImg, originalMask, tmpImg );
+        }
+    }
+    
+    tmpImg.assignTo( dataMat, dataMat.type() );
+
+}
+
+
+namespace {
+
+    PointF lineIntersection( const cv::Vec4i &line1, const cv::Vec4i &line2 ) {
+        
+        PointF intersection(NAN);
+        
+        double A1 = (line1[2] - line1[0]);
+        double B1 = (line1[3] - line1[1]);
+        double C1 = (A1*line1[0] + B1*line1[1]);
+
+        double A2 = (line2[2] - line2[0]);
+        double B2 = (line2[3] - line2[1]);
+        double C2 = (A2*line2[0] + B2*line2[1]);
+
+        double det = (A1*B2)-(A2*B1);
+        if( fabs(det) > 1E-5 ) {
+            intersection.x = static_cast<float>(((C1*B2)-(C2*B1)) / (det));
+            intersection.y = static_cast<float>(((C2*A1)-(C1*A2)) / (det));
+        }
+
+        return intersection;
+    }
+
+    
+}
+
+
+std::vector<PointF> wfwfs::detect_corners( cv::InputArray data, double rho, double theta, int threshold, double minLineLength, double maxLineGap, int smooth ) {
+    
+    std::vector<PointF> ret;
+    
+    using namespace cv;
+    
+    Mat dataMat = data.getMat();
+    CV_Assert( !dataMat.empty() );
+    
+    Mat tmpImg;
+    Canny( dataMat, tmpImg, 1, 1, 3 );
+    
+    if( smooth > 1 ) {
+        Mat originalMask = tmpImg.clone();
+        cv::Point anchor( smooth/2, smooth/2 );
+        Mat element = getStructuringElement( MORPH_RECT, Size( smooth, smooth ), anchor );
+        morphologyEx( tmpImg, tmpImg, MORPH_CLOSE, element, anchor, 1, BORDER_REFLECT_101 );
+        if( !(smooth & 1) ) anchor -= cv::Point( 1, 1 );    // move anchor-point for the reverse transform, so that asymmetry-shifts cancel
+        morphologyEx( tmpImg, tmpImg, MORPH_OPEN, element, anchor, 1, BORDER_REFLECT_101 ); 
+    }
+    
+    vector<Vec4i> lines;  
+    HoughLinesP( tmpImg, lines, rho, theta, threshold, minLineLength, maxLineGap );
+    for( size_t i(0); i<lines.size(); ++i ) {
+        for( size_t j(i+1); j<lines.size(); ++j ) {
+            wfwfs::PointF intersection = lineIntersection( lines[i], lines[j] );
+            if( intersection.isfinite() && (intersection.min() > 0) && (intersection.x < dataMat.rows) && (intersection.y < dataMat.cols) ) {
+                ret.push_back( intersection );
+            }
+        }
+    }
+    
+    return ret;
+    
+}
+
+
+void wfwfs::bounding_rect( cv::InputOutputArray data, PointI& first, PointI& last ) {
+    
+    using namespace cv;
+    
+    Mat dataMat = data.getMat();
+    CV_Assert( !dataMat.empty() );
+    
+    Mat tmpImg;
+    Canny( dataMat, tmpImg, 0, 1, 5 );
+    
+    vector< vector<cv::Point> > contours;
+    findContours( tmpImg, contours, RETR_EXTERNAL, CHAIN_APPROX_NONE );     // RETR_LIST, CHAIN_APPROX_SIMPLE
+    
+    if( contours.empty() ) return;
+    
+    if( contours.size() == 1 ) {
+        auto c = contours.front();
+        Rect r = boundingRect( c );
+        if( (r.height > 0) && (r.width > 0) ) {
+            first = PointI( r.y, r.x );
+            last = first + PointI( r.height-1, r.width-1 );
+        }
+    }
+
+}
+
+
+cv::Mat wfwfs::getFloatMat( cv::InputOutputArray data ) {
+
+    using namespace cv;
+    
+    Mat ret;
+    try {
+        Mat dataMat = data.getMat();
+        CV_Assert( !dataMat.empty() );
+        dataMat.convertTo( ret, CV_32FC1 );
+        double minValue, maxValue;
+        cv::minMaxLoc( ret, &minValue, &maxValue);
+        ret = (ret - minValue) / (maxValue - minValue);
+    } catch( cv::Exception& e ) {
+        std::cerr << "OpenCV error: " << e.msg << std::endl;
+    }
+
+    return ret;
+
+}
+
+template <typename T>
+double wfwfs::flat2gain( const T* in, T* out, size_t sizeY, size_t sizeX, size_t stride, const uint8_t* mask2, int smooth ) {
+    
+    if( smooth == 0 ) smooth = 7;
+    
+    float bad = 1.0;
+    float mx = 4.0;
+    float mn = 0.1;
+    
+    ArrayStats stats;
+    stats.getMedian( in, sizeY, sizeX, stride, mask2 );
+    
+    size_t nEl = sizeY*sizeX;
+    Array<T> tmp( 2*sizeY, sizeX );
+    T* tmpPtr1 = tmp.get();
+    T* tmpPtr2 = tmpPtr1+nEl;
+
+    Array<uint8_t> tmpMask( sizeY, sizeX );
+    uint8_t* maskPtr = tmpMask.get();
+    
+    for( size_t yy(0); yy<sizeY; ++yy ) {
+        for( size_t xx(0); xx<sizeX; ++xx ) {
+            size_t offset1 = yy*stride+xx;
+            size_t offset2 = yy*sizeX+xx;
+            if( in[offset1] < (stats.median*1E-5) ) tmpPtr1[offset2] = stats.median*1E-5;
+            tmpPtr1[offset2] = stats.median/in[offset1];
+            if( !isfinite(tmpPtr1[offset2]) ) tmpPtr1[offset2] = 0;
+        }
+    }
+    
+
+    cv::Mat tmpMat1( sizeY, sizeX, cvType<T>(), tmpPtr1 );
+    cv::Mat tmpMat2( sizeY, sizeX, cvType<T>(), tmpPtr2 );
+    cv::Mat maskMat( sizeY, sizeX, cvType<uint8_t>(), maskPtr );
+    double sigma = smooth/( 4 * sqrt(log(2.0)) );
+    cv::GaussianBlur( tmpMat1, tmpMat2, cv::Size(), sigma, sigma, cv::BORDER_REFLECT_101 );
+    
+    for( size_t i(0); i<nEl; ++i ) {
+        maskPtr[i] = (tmpPtr1[i] >= mn) && (tmpPtr1[i] <= mx) &&
+            ((tmpPtr1[i]-tmpPtr2[i]) < bad) && isfinite(tmpPtr1[i]); 
+    }
+
+    cv::Point anchor(-1,-1); //( 3, 3 );
+    cv::Mat element = cv::getStructuringElement( cv::MORPH_RECT, cv::Size( 5, 5 ), anchor );
+    //cv::morphologyEx( maskMat, maskMat, cv::MORPH_CLOSE, element, anchor, 1, cv::BORDER_REFLECT_101 );
+    //anchor -= cv::Point( 1, 1 );
+    cv::morphologyEx( maskMat, maskMat, cv::MORPH_OPEN, element, anchor, 1, cv::BORDER_REFLECT_101 );
+    for( size_t yy(0); yy<sizeY; ++yy ) {
+        for( size_t xx(0); xx<sizeX; ++xx ) {
+            size_t offset1 = yy*stride+xx;
+            size_t offset2 = yy*sizeX+xx;
+            if( maskPtr[offset2] && isfinite(tmpPtr1[offset2]) ) {
+                out[offset1] = stats.median/in[offset1];
+                if( !isfinite(out[offset1]) ) out[offset1] = 0;
+            } else {
+                out[offset1] = 0;
+            }
+        }
+    }
+     
+    return stats.median;
+}
+template double wfwfs::flat2gain( const float*, float*, size_t, size_t, size_t, const uint8_t*, int );
+template double wfwfs::flat2gain( const double*, double*, size_t, size_t, size_t, const uint8_t*, int );
 
 

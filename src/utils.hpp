@@ -24,8 +24,13 @@
  ***************************************************************************/
 
 #include "array.hpp"
+#include "point.hpp"
 
 #include <thread>
+
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
 
 namespace wfwfs {
 
@@ -54,11 +59,14 @@ namespace wfwfs {
         }
 
         template <typename T>
-        void connectedRegion(T** data, uint8_t** mask, size_t sizeY, size_t sizeX, unsigned int y, unsigned int x, T threshold=T(0));
+        void maskConnected2( const T* data, uint8_t* mask, size_t sizeY, size_t sizeX, unsigned int startY, unsigned int startX, T threshold=T(0));
+
+        template <typename T>
+        void connectedRegion(const T** data, uint8_t** mask, size_t sizeY, size_t sizeX, unsigned int y, unsigned int x, T threshold=T(0));
         template <typename T>
         void connectedRegion(T** data, size_t sizeY, size_t sizeX, unsigned int y, unsigned int x, T threshold=T(0)) {
             uint8_t** mask = wfwfs::newArray<uint8_t>(sizeY,sizeX);
-            connectedRegion(data, mask, sizeY, sizeX, y, x, threshold);
+            connectedRegion(const_cast<const T**>(data), mask, sizeY, sizeX, y, x, threshold);
             std::transform(*data, *data+sizeY*sizeX, *mask, *data, wfwfs::multiply<T,uint8_t>());
             wfwfs::delArray(mask);
         }
@@ -393,9 +401,104 @@ namespace wfwfs {
             }
         }
 
+        void make_mask( cv::InputArray image, cv::InputOutputArray mask, double thres=0, int smooth=5, bool filterLarger=false, bool invert=false );
+        void morph_smooth( cv::InputOutputArray mask, int smooth=5, bool filterLarger=false );
+        std::vector<PointF> detect_corners( cv::InputArray image, double rho=1, double theta=CV_PI/180, int threshold=1, double minLineLength=100, double maxLineGap=10, int smooth=0 );
+        void bounding_rect( cv::InputOutputArray image, PointI& first, PointI& last );
+        cv::Mat getFloatMat( cv::InputOutputArray data );
+
+        template <typename T> inline int cvType(void) { return CV_8UC1; }
+        template<> inline int cvType<int16_t>(void) { return CV_16SC1; }
+        template<> inline int cvType<int32_t>(void) { return CV_32SC1; }
+        template<> inline int cvType<float>(void) { return CV_32FC1; }
+        template<> inline int cvType<double>(void) { return CV_64FC1; }
 
 
+        template <typename T, typename U>
+        void make_mask( const T* input, U* mask, size_t ySize, size_t xSize, double thres=0, int smooth=5, bool filterLarger=false, bool invert=false ) {
+            cv::Mat inMat( ySize, xSize, cvType<T>(), const_cast<T*>(input) );
+            cv::Mat maskMat( ySize, xSize, cvType<U>(), mask );
+            make_mask( inMat, maskMat, thres, smooth, filterLarger, invert );
+        }
+        
+        template <typename T>
+        void morph_smooth( T* data, size_t ySize, size_t xSize, int smooth=5, bool filterLarger=false ) {
+            cv::Mat dataMat( ySize, xSize, cvType<T>(), data );
+            morph_smooth( dataMat, smooth, filterLarger );
+        }
+        
 
+        template <typename T>
+        std::vector<PointF> detect_corners( T* data, size_t ySize, size_t xSize,
+                                            double rho=1, double theta=CV_PI/180, int threshold=1, double minLineLength=100, double maxLineGap=10, int smooth=0 ) {
+            cv::Mat dataMat( ySize, xSize, cvType<T>(), data );
+            return detect_corners( dataMat, rho, theta,  threshold, minLineLength, maxLineGap, smooth );
+        }
+        
+        template <typename T>
+        void bounding_rect( T* data, size_t ySize, size_t xSize, PointI& first, PointI& last ) {
+            cv::Mat dataMat( ySize, xSize, cvType<T>(), data );
+            bounding_rect( dataMat, first, last );
+        }
+        
+        template <typename T>
+        cv::Mat getFloatMat( T* data, size_t ySize, size_t xSize ) {
+            cv::Mat dataMat( ySize, xSize, cvType<T>(), data );
+            return getFloatMat( dataMat );
+        }
+
+        template <typename T, typename U>
+        double threshold( T* data, U* out, size_t ySize, size_t xSize, double thresh, double maxval=1, int type=0 ) {
+            double ret = 0.0;
+            cv::Mat fMat = getFloatMat( data, ySize, xSize );
+            cv::Mat outMat( ySize, xSize, cvType<U>(), out );
+            cv::Mat bMat( fMat.size(), CV_8UC1 );
+            cv::Mat tmpMat( fMat.size(), CV_8UC1 );
+            fMat.convertTo( bMat, CV_8UC1, 255 );
+            ret = threshold( bMat, tmpMat, thresh, maxval, type );
+            // void adaptiveThreshold(InputArray src, OutputArray dst, double maxValue, int adaptiveMethod, int thresholdType, int blockSize, double C)
+            // double threshold(InputArray src, OutputArray dst, double thresh, double maxval, int type)
+            // cv::threshold( ySize, xSize, cvType<T>(), data );
+            tmpMat.convertTo( outMat, cvType<U>() );
+            return ret;
+
+        }
+
+        template <typename T, typename U>
+        void threshold( T* data, U* out, size_t ySize, size_t xSize, int adaptiveMethod=cv::ADAPTIVE_THRESH_GAUSSIAN_C,
+                        int thresholdType=cv::THRESH_BINARY, double maxval=1, int blockSize=5, double offset=0 ) {
+            cv::Mat fMat = getFloatMat( data, ySize, xSize );
+            cv::Mat outMat( ySize, xSize, cvType<U>(), out );
+            cv::Mat bMat( fMat.size(), CV_8UC1 );
+            cv::Mat tmpMat( fMat.size(), CV_8UC1 );
+            fMat.convertTo( bMat, CV_8UC1, 255 );
+            //ret = threshold( bMat, tmpMat, thresh, maxval, type );
+            adaptiveThreshold( bMat, tmpMat, maxval, adaptiveMethod, thresholdType, blockSize, offset );
+            // double threshold(InputArray src, OutputArray dst, double thresh, double maxval, int type)
+            // cv::threshold( ySize, xSize, cvType<T>(), data );
+            tmpMat.convertTo( outMat, cvType<U>() );
+        }
+
+
+        template <typename T>
+        double flat2gain( const T* in, T* out, size_t sizeY, size_t sizeX, size_t stride, const uint8_t* mask=nullptr, int smooth=0 );
+        template <typename T>
+        double flat2gain( const T* in, T* out, size_t sizeY, size_t sizeX, const uint8_t* mask=nullptr, int smooth=0 ) {
+            return flat2gain( in, out, sizeY, sizeX, sizeX, mask, smooth );
+        }
+        template <typename T> double flat2gain( const T* in, T* out, size_t count, const uint8_t* mask=nullptr, int smooth=0 ) {
+            return flat2gain( in, out, 1, count, count, mask, smooth );
+        }
+        template <typename T> double flat2gain( const wfwfs::Array<T>& in, wfwfs::Array<T>& out, int smooth=0) {
+            if( in.dense() ) return flat2gain( in.ptr(), out.ptr(), in.nElements() );
+            else {
+                wfwfs::Array<T> tmp;
+                in.copy(tmp);
+                return flat2gain( tmp.get(), out.ptr(), in.nElements(), nullptr, smooth );
+            }
+        }
+
+        
 }   // wfwfs
 
 

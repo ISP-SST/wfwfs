@@ -1,4 +1,4 @@
-USE_EXTERNAL( boost fits gsl pleora threads zlib )
+USE_EXTERNAL( boost fits gsl opencv pleora threads zlib )
 
 if( NOT DEFINED Boost_FOUND )
     message(STATUS "Boost not found. Try your systems equivalent of \"apt-get install libboost-all-dev\"" )
