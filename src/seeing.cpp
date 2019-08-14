@@ -33,8 +33,6 @@ using namespace wfwfs;
 using namespace std;
 
 namespace bpx = boost::posix_time;
-
-
 using boost::algorithm::iequals;
 
 float Seeing::pixelsize(8.0E-6);
@@ -49,7 +47,7 @@ double Seeing::dimm_K(0);
 float Seeing::int_weight(1.0);
 
 
-Seeing::Seeing( void ) : dsID(1), avg_intensity(0.0) {
+Seeing::Seeing( void ) : subtract_plane(false), dsID(1), avg_intensity(0.0) {
 
     precalculate();
     
@@ -73,6 +71,7 @@ void Seeing::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     diam_px = cfg_ptree.get<float>( "subaperture_pixels", diam_px );
     lambda = cfg_ptree.get<float>( "wavelength", lambda );
     pixelsize = cfg_ptree.get<float>( "pixelsize", pixelsize );
+    subtract_plane = cfg_ptree.count("subtract_plane");
     
     precalculate();
 
@@ -157,17 +156,30 @@ void Seeing::copy_cell_data( Frame& f, float* dd, float* gg, size_t stride, int 
             total_sum += cell_sum;
             nTotalSummed += n_cell_summed;
             if( n_cell_summed ) cell_sum /= n_cell_summed;
-            outPtr = out + ds_offset + c_offset;
-            if( n == ds.get_ref_cell_id() ) {
-                outPtr += ds.get_max_shift()*(cs+1);
-            }
-            vector<double> slopes = fitPlane( outPtr, this_cell_size, this_cell_size, cs );
-            for( int y(0); y < (int)this_cell_size; ++y ) {    // for each cell-row
-                double delta_y = y*slopes[1];
-                for( int x(0); x < (int)this_cell_size; ++x ) {
-                    outPtr[x] -= x*slopes[0] + delta_y + slopes[2];     // subtract plane & avg
+            if( subtract_plane ) {  // subtract plane
+                outPtr = out + ds_offset + c_offset;
+                if( n == ds.get_ref_cell_id() ) {
+                    outPtr += ds.get_max_shift()*(cs+1);
                 }
-                outPtr += cs;
+                vector<double> slopes = fitPlane( outPtr, this_cell_size, this_cell_size, cs );
+                for( int y(0); y < (int)this_cell_size; ++y ) {    // for each cell-row
+                    double delta_y = y*slopes[1];
+                    for( int x(0); x < (int)this_cell_size; ++x ) {
+                        outPtr[x] -= x*slopes[0] + delta_y + slopes[2];     // subtract plane & avg
+                    }
+                    outPtr += cs;
+                }
+            } else {    // subtract avg
+                outPtr = out + ds_offset + c_offset;
+                if( n == ds.get_ref_cell_id() ) {
+                    outPtr += ds.get_max_shift()*(cs+1);
+                }
+                for( size_t y(0); y < this_cell_size; ++y ) {    // for each cell-row
+                    for( size_t x(0); x < this_cell_size; ++x ) {
+                        outPtr[x] -= cell_sum;
+                    }
+                    outPtr += cs;
+                }
             }
             c_offset += imgStride;
         }

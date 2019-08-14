@@ -1273,6 +1273,9 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
     } else if( command == "meta" ) {
         string key = popword( line );
         add_meta( key, line );
+    } else if( command == "sp" ) {
+        seeing.subtract_plane = !seeing.subtract_plane;
+        replyStr = "OK subtract_plane " + to_string(seeing.subtract_plane);
     } else if( command == "timing" ) {
         show_timing = !show_timing;
     } else if( command == "adjust") {

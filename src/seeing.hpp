@@ -107,6 +107,7 @@ namespace wfwfs {
         static double dimm_K;               // pre-computed factor used in the DIMM equations
         
         static float int_weight;
+        bool subtract_plane;
         
     private:
 
