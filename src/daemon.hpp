@@ -162,6 +162,7 @@ namespace wfwfs {
         Seeing seeing;
         Array<float> dd,ff,gg;
         float *ddPtr, *ggPtr;
+        int gain_method;
         
         friend class TcpServer;
 

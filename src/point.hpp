@@ -78,6 +78,7 @@ namespace wfwfs {
         inline T max_abs( void ) const { return std::max( abs(x), abs(y) ); }
         inline T min_abs( void ) const { return std::min( abs(x), abs(y) ); }
         inline T norm( void ) const { return (x*x+y*y); }
+        inline T area( void ) const { return (x*y); }
         inline void round( void ) { x=std::round(x); y=std::round(y); }
         operator std::string() const { std::ostringstream out; out << "[" << y << "," << x << "]"; return out.str(); }
         //operator std::string() const { return "(" + std::to_string(y) + "," + std::to_string(x) + ")"; }

@@ -31,6 +31,8 @@
 #include "revision.hpp"
 #include "stringutil.hpp"
 #include "translators.hpp"
+#include "model.hpp"
+#include "utils.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -316,7 +318,8 @@ void Daemon::set( Daemon* d ) {
 }
 
 
-Daemon::Daemon( bpo::variables_map& vm ) : Application( vm, LOOP ), settings( vm ), has_light(false), timer( ioService ), ddPtr(nullptr), ggPtr(nullptr) {
+Daemon::Daemon( bpo::variables_map& vm ) : Application( vm, LOOP ), settings( vm ), has_light(false), timer( ioService ),
+    ddPtr(nullptr), ggPtr(nullptr), gain_method(1) {
     
     set( this );
     
@@ -406,22 +409,32 @@ void Daemon::init(void) {
     
     parsePropertyTree( cfg_ptree );
     
-    FitsWriter::update_gmeta( "DETECTOR", cam->info.id );
-    FitsWriter::update_gmeta( "DETMODEL", cam->info.model );
-    FitsWriter::update_gmeta( "DETFIRM", cam->info.firmware_version );
+    if( cam ) {
+        
+        cam->init();
+        
+        FitsWriter::update_gmeta( "DETECTOR", cam->info.id );
+        FitsWriter::update_gmeta( "DETMODEL", cam->info.model );
+        FitsWriter::update_gmeta( "DETFIRM", cam->info.firmware_version );
+        
+        add_meta( "DETECTOR", cam->info.id );
+        add_meta( "DETMODEL", cam->info.model );
+        add_meta( "DETFIRM", cam->info.firmware_version );
+        
+        size_t frame_queue = cfg_ptree.get<size_t>( "frame_queue", 10 );
+        fqueue.resize( cam->cfg.width, cam->cfg.height, frame_queue, cam->cfg.depth );
+        
+        updateCalibID();
     
-    add_meta( "DETECTOR", cam->info.id );
-    add_meta( "DETMODEL", cam->info.model );
-    add_meta( "DETFIRM", cam->info.firmware_version );
-    
-    size_t frame_queue = cfg_ptree.get<size_t>( "frame_queue", 10 );
-    fqueue.resize( cam->cfg.width, cam->cfg.height, frame_queue, cam->cfg.depth );
-    
-    updateCalibID();
-    
+    }
+
     dd.resize( fqueue.width, fqueue.height );
     ff.resize( fqueue.width, fqueue.height );
     gg.resize( fqueue.width, fqueue.height );
+    cell_mask.resize( fqueue.width, fqueue.height );
+    
+    PointI sz = fqueue.get_size();
+    Model::generate( sz, seeing.diam_px, sz/2 );
 
     dd = 0.0;
     ff = 1.0;
@@ -453,9 +466,10 @@ void Daemon::init(void) {
     ddPtr = dd.get();
     
     update_gain();
-    cell_mask.resize( fqueue.width, fqueue.height );
-    seeing.find_nominal_gridpoints( cam->get_size() );
+    seeing.find_nominal_gridpoints( sz );
+    
     seeing.draw_cells( cell_mask );
+    Model::get().draw_subfields( cell_mask, uint8_t(1) );
     
     seeing.start();
 
@@ -469,6 +483,7 @@ void Daemon::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     outputdir = cfg_ptree.get<string>( "outputdir", "/data/" );
     
     histo_skip = cfg_ptree.get<size_t>( "histo_skip", 1 );
+    gain_method = cfg_ptree.get<int>( "gain_method", gain_method );
 
     for( auto& node : cfg_ptree ) {
         if( iequals( node.first, "META" ) ) {
@@ -494,7 +509,6 @@ void Daemon::parsePropertyTree( boost::property_tree::ptree& cfg_ptree ) {
     }
 
     seeing.parsePropertyTree( cfg_ptree );
-    cam->init();
 
     
 }
@@ -600,6 +614,11 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
     unique_ptr<uint8_t[]> buf( new uint8_t[blockSize] );
     fill_n( buf.get(), blockSize, 0 );
     uint8_t* cmask = cell_mask.get();
+    const uint8_t* sf_mask = nullptr;
+    if( df && Model::has_mask() ) {
+        auto& sfm = Model::get_mask();
+        sf_mask = sfm.get();
+    }
     
     int maxval = (1 << fqueue.depth) - 1;
     
@@ -609,17 +628,19 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
         for(int y = y1 * scale; y < y2 * scale; y += scale) {
             for(int x = x1 * scale; x < x2 * scale; x += scale) {
                 size_t o = y * fqueue.width + x;
-                if( !draw_cells || !cmask[o] ) {
-                    if( df ) {
-                        *p = dg_correct( in, o, ddPtr, ggPtr, maxval );
-                    } else {
-                        *p = in[o];
+                if( !sf_mask || sf_mask[o] ) {
+                    if( !draw_cells || !cmask[o] ) {
+                        if( df ) {
+                            *p = dg_correct( in, o, ddPtr, ggPtr, maxval );
+                        } else {
+                            *p = in[o];
+                        }
                     }
-                }
-                if( do_histo ) {
-                    lf.frame.hist[ *p&histMask ]++;
-                    histPixels++;
-                }
+                    if( do_histo ) {
+                        lf.frame.hist[ *p&histMask ]++;
+                        histPixels++;
+                    }
+                } else *p = 0;
                 p++;
             }
         }
@@ -629,17 +650,19 @@ void Daemon::get_frame( TcpConnection::Ptr connection, int x1, int y1, int x2, i
         for(int y = y1 * scale; y < y2 * scale; y += scale) {
             for(int x = x1 * scale; x < x2 * scale; x += scale) {
                 size_t o = y * fqueue.width + x;
-                if( !draw_cells || !cmask[o] ) {  
-                    if( df ) {
-                        *p = dg_correct( in, o, ddPtr, ggPtr, maxval );
-                    } else {
-                        *p = in[o];
+                if( !sf_mask || sf_mask[o] ) {
+                    if( !draw_cells || !cmask[o] ) {  
+                        if( df ) {
+                            *p = dg_correct( in, o, ddPtr, ggPtr, maxval );
+                        } else {
+                            *p = in[o];
+                        }
                     }
-                }
-                if( do_histo ) {
-                    lf.frame.hist[ *p&histMask ]++;
-                    histPixels++;
-                }
+                    if( do_histo ) {
+                        lf.frame.hist[ *p&histMask ]++;
+                        histPixels++;
+                    }
+                } else *p = 0;
                 p++;
             }
         }
@@ -756,7 +779,7 @@ void Daemon::save_fits( string filename_template, int nframes, uint32_t frames_p
             }
         }
     }
-    
+  
     shared_ptr<FitsWriter> fw;
     fw.reset( new FitsWriter( fqueue, acc_filename, nthreads, compress ) );
     fw->save_meta( cards );
@@ -764,6 +787,7 @@ void Daemon::save_fits( string filename_template, int nframes, uint32_t frames_p
     int frame_count(0);
     int file_count(0);
     broadcast( "state", "OK state burst" );
+
     while( frame_count < nframes ) {
         string this_fn = make_filename( filename_template, file_count, frame_count );
         Fits::updateCard( cards, Fits::makeCard( "FRAMENUM", frame_count ) );
@@ -990,6 +1014,7 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
     } else if( command == "draw_cells" ) {
         draw_cells = !draw_cells;
         seeing.draw_cells( cell_mask );
+        Model::get().draw_subfields( cell_mask, uint8_t(1) );
         replyStr = "OK draw_cells "+to_string(draw_cells);
     } else if( command == "start" ) {
         string what = popword( line );
@@ -1276,12 +1301,28 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
     } else if( command == "sp" ) {
         seeing.subtract_plane = !seeing.subtract_plane;
         replyStr = "OK subtract_plane " + to_string(seeing.subtract_plane);
+    } else if( command == "gm" ) {
+        int m = -1;
+        if( !line.empty() ) {
+            m = pop<int>( line );
+        }
+        if( m < 0 ) {
+            gain_method = (gain_method+1)%3;
+        } else {
+            gain_method = m%3;
+        }
+        update_gain();
+        replyStr = "OK gain_method " + to_string(gain_method);
     } else if( command == "timing" ) {
         show_timing = !show_timing;
     } else if( command == "adjust") {
-        size_t id = pop<int>( line );
-        replyStr = "OK adjust " + seeing.adjust_cells( id );
+        int ds_id = -1;
+        if( !line.empty() ) {
+            ds_id = pop<int>( line );
+        }
+        replyStr = "OK adjust " + seeing.adjust_cells( ds_id );
         seeing.draw_cells( cell_mask );
+        Model::get().draw_subfields( cell_mask, uint8_t(1) );
     } else if( command == "zero_avgs") {
         seeing.zero_avgs();
         replyStr = "OK zero_avgs" ;
@@ -1307,6 +1348,7 @@ bool Daemon::processCmd( TcpConnection::Ptr conn, const string& cmd ) {
             replyStr = "OK shift " + seeing.shift_cell( s, cell_id, ds_id );
         }
         seeing.draw_cells( cell_mask );
+        Model::get().draw_subfields( cell_mask, uint8_t(1) );
     } else if( command == "sub") {
         string tag = popword( line );
         if( !tag.empty() ) subscribe( conn, tag );
@@ -1781,23 +1823,99 @@ void Daemon::update_gain( void ) {
         ggPtr = gg.get();
     }
 
+    size_t sizeY = gg.dimSize(0);
+    size_t sizeX = gg.dimSize(1);
     size_t nElements = ff.nElements();
-    std::transform( ff.get(), ff.get()+nElements, ddPtr, ggPtr, std::minus<float>() );
     
-    ArrayStats stats;
-    stats.getMinMaxMean( gg );
-    transform( ggPtr, ggPtr+nElements, ggPtr, [&](float a) {
-            if( a > 0.0 ) {
-                double tmp = stats.max/a;
-                if( tmp > 4 ) return 4.0;
-                if( tmp < 0.1 ) return 0.1;
-                return tmp;
+    const float* ffPtr = ff.get();
+    
+    std::transform( ffPtr, ffPtr+nElements, ddPtr, ggPtr, [&]( const float& a, const float& b ){
+        if( b < a ) return (a-b);
+        return 0.0f;
+     });
+    
+    if( !Model::has_mask() ) {
+        Model::make_mask( gg, true );
+    }
+    const Array<uint8_t>& mask = Model::get_mask();
+    const uint8_t* maskPtr = mask.get();
+    
+    if( gain_method == 1 ) {     // global gain creation
+        
+        flat2gain( ggPtr, ggPtr, sizeY, sizeX, maskPtr );
+        
+    } else if( gain_method == 0 ) {     // old/naiive method
+        
+        std::transform( ff.get(), ff.get()+nElements, ddPtr, ggPtr, std::minus<float>() );
+        
+        ArrayStats stats;
+        stats.getMinMaxMean( gg );
+        transform( ggPtr, ggPtr+nElements, ggPtr, [&](float a) {
+                if( a > 0.0 ) {
+                    double tmp = stats.max/a;
+                    if( tmp > 4 ) return 4.0;
+                    if( tmp < 0.1 ) return 0.1;
+                    return tmp;
+                }
+                return 0.0;
+        });
+        stats.getStats(gg);
+        gg /= stats.mean*0.99;   // NOTE: the 0.99 is just to approximately compensate for the intensity decrease from dd subtraction
+
+    } else {        // process the subfields individually and afterwards construct the global gain.
+        
+        float* ggPtr2 = ggPtr;
+        Array<float> tmpGG;
+        if( !maskPtr ) {
+            tmpGG.resize(sizeY,sizeX);
+            tmpGG.zero();
+            ggPtr2 = tmpGG.get();
+        }
+
+        auto& subfields = Model::get_subfields();
+        const PointI sf_size = Model::get_subfield_size()+PointI(3);   // calculate gain for a few extra pixels, just so that the rounding of position+size is covered
+        const PointI half_sf_size = sf_size/2;
+
+        double max_median_gain(0);
+
+        for( auto& s: subfields ) {
+            PointF pos = s.second.get_position();
+            PointI posI = pos + PointF(0.5);
+            size_t ptrOffset = static_cast<size_t>(posI.y-half_sf_size.y)*sizeX + static_cast<size_t>(posI.x-half_sf_size.x);
+            flat2gain( ggPtr+ptrOffset, ggPtr2+ptrOffset, sf_size.y, sf_size.x, sizeX );
+            
+            size_t ptrOffset2 = static_cast<size_t>(posI.y-half_sf_size.y/2)*sizeX + static_cast<size_t>(posI.x-half_sf_size.x/2);
+            ArrayStats subfieldStats;
+            subfieldStats.getMedian( ggPtr2+ptrOffset2, sf_size.y/2, sf_size.x/2, sizeX );
+            s.second.median_gain = subfieldStats.median;
+            if( s.second.median_gain > max_median_gain ) {
+                max_median_gain = s.second.median_gain;
             }
-            return 0.0;
-    } );
+        }
+        for( auto& s: subfields ) {
+            auto& pos = s.second.real_position;
+            size_t ptrOffset = static_cast<size_t>(pos.y-half_sf_size.y)*sizeX + static_cast<size_t>(pos.x-half_sf_size.x);
+            double ratio = max_median_gain/s.second.median_gain;
+            if( false )     // TODO: fix the normalization!
+            for( int yy(0); yy<sf_size.y; ++yy ) {
+                size_t ptrOffset2 = ptrOffset+yy*sizeX;
+                transform( ggPtr+ptrOffset2, ggPtr+ptrOffset2+sf_size.x, ggPtr+ptrOffset2, [&](const float& a){
+                    return a*ratio;
+                });
+            }
+        }
+        if( !maskPtr ) {
+            std::copy_n( ggPtr2, nElements, ggPtr );
+        }
+    }
     
-    stats.getStats(gg);
-    gg /= stats.mean*0.99;   // NOTE: the 0.99 is just to approximately compensate for the intensity decrease from dd subtraction
+    if( (gain_method > 0) && maskPtr ) {
+        std::transform( ggPtr, ggPtr+nElements, maskPtr, ggPtr, [&]( const float& a, const uint8_t& b ){
+            if( b ) return a;
+            return 0.0f;
+        });
+    }
+    
 
     try {
         string gt_name = "calib/%DATE%/gaintable_%TIME%.fits";

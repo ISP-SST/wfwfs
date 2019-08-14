@@ -87,6 +87,7 @@ namespace wfwfs {
         
         FrameQueue();
         void resize( size_t w, size_t h, size_t nF, size_t d=8 );
+        PointI get_size( void ) const { return PointI( height, width ); };
         
         Frame& getEmpty( void );
         void queue( Frame& );
