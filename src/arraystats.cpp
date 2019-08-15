@@ -87,7 +87,7 @@ void wfwfs::ArrayStats::getMedian( const T* data, size_t sizeY, size_t sizeX, si
         median = med25 = med75 = max;
         return;
     }
-    const size_t N = range ? std::min<size_t>(10000,range) : 10000;
+    const size_t N = range ? std::min<size_t>(100000,std::max<size_t>(1000,range)) : 10000;
     
     double scale = N/(max-min);
     vector<size_t> hist( N, 0 );

@@ -1876,37 +1876,27 @@ void Daemon::update_gain( void ) {
         const PointI sf_size = Model::get_subfield_size()+PointI(3);   // calculate gain for a few extra pixels, just so that the rounding of position+size is covered
         const PointI half_sf_size = sf_size/2;
 
-        double max_median_gain(0);
-
         for( auto& s: subfields ) {
             PointF pos = s.second.get_position();
             PointI posI = pos + PointF(0.5);
             size_t ptrOffset = static_cast<size_t>(posI.y-half_sf_size.y)*sizeX + static_cast<size_t>(posI.x-half_sf_size.x);
             flat2gain( ggPtr+ptrOffset, ggPtr2+ptrOffset, sf_size.y, sf_size.x, sizeX );
-            
-            size_t ptrOffset2 = static_cast<size_t>(posI.y-half_sf_size.y/2)*sizeX + static_cast<size_t>(posI.x-half_sf_size.x/2);
             ArrayStats subfieldStats;
-            subfieldStats.getMedian( ggPtr2+ptrOffset2, sf_size.y/2, sf_size.x/2, sizeX );
+            subfieldStats.getMedian( ggPtr2+ptrOffset, sf_size.y, sf_size.x, sizeX );
             s.second.median_gain = subfieldStats.median;
-            if( s.second.median_gain > max_median_gain ) {
-                max_median_gain = s.second.median_gain;
-            }
-        }
-        for( auto& s: subfields ) {
-            auto& pos = s.second.real_position;
-            size_t ptrOffset = static_cast<size_t>(pos.y-half_sf_size.y)*sizeX + static_cast<size_t>(pos.x-half_sf_size.x);
-            double ratio = max_median_gain/s.second.median_gain;
-            if( false )     // TODO: fix the normalization!
+            double nrm = 1.0/s.second.median_gain;
             for( int yy(0); yy<sf_size.y; ++yy ) {
                 size_t ptrOffset2 = ptrOffset+yy*sizeX;
-                transform( ggPtr+ptrOffset2, ggPtr+ptrOffset2+sf_size.x, ggPtr+ptrOffset2, [&](const float& a){
-                    return a*ratio;
+                transform( ggPtr2+ptrOffset2, ggPtr2+ptrOffset2+sf_size.x, ggPtr2+ptrOffset2, [&](const float& a){
+                    return (nrm*a);
                 });
             }
         }
+
         if( !maskPtr ) {
             std::copy_n( ggPtr2, nElements, ggPtr );
         }
+        
     }
     
     if( (gain_method > 0) && maskPtr ) {
