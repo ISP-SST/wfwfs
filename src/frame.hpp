@@ -39,7 +39,7 @@ namespace wfwfs {
 
     struct Frame {
         
-        Frame() : data(nullptr), uc(0), hist(nullptr), stats(1,{0}) {}
+        Frame() : data(nullptr), id(0), offset(0), uc(0), hist(nullptr), stats(1,{0}) {}
         Frame( Frame&& f ) : timestamp(f.timestamp), data(f.data), id(f.id), offset(f.offset),
             uc(f.uc.load()), hist(f.hist), stats(f.stats) {}
         
@@ -75,6 +75,7 @@ namespace wfwfs {
         size_t width;
         size_t height;
         size_t depth;
+        size_t currentFrame;
         
         std::unique_ptr<uint8_t[]> data;
         std::unique_ptr<uint32_t[]> hist;
@@ -82,8 +83,6 @@ namespace wfwfs {
         std::map<size_t, Frame&> frames_by_id;
         std::mutex mtx;
         std::condition_variable cond;
-        
-        std::vector<Frame>::iterator current_;
         
         FrameQueue();
         void resize( size_t w, size_t h, size_t nF, size_t d=8 );

@@ -41,6 +41,7 @@ namespace wfwfs {
         typedef std::function<void(const uint8_t*, boost::posix_time::ptime)> frame_cb_t;
         
         struct Config {
+            Config() : depth(0), width(0), height(0), n_buf(0) {}
             int depth;
             int width;
             int height;
@@ -48,6 +49,7 @@ namespace wfwfs {
         } cfg;
 
         struct Info {
+            Info() : id(""), model(""), firmware_version(""), serial("") {}
             std::string id;
             std::string model;
             std::string firmware_version;
@@ -55,6 +57,7 @@ namespace wfwfs {
         } info;
 
         struct State {
+            State() : exposure(0.002), gain(0), interval(0.08), offset(0), temp(0) {}
             double exposure;
             double gain;
             double interval;

@@ -290,6 +290,11 @@ cout << boost::format("PixelFormat: %s  nFrames: %ld") % tmpS.GetAscii() % cfg.n
 
     maybeLog( lDevice->StreamEnable(), "enabling stream" );
     maybeLog( lDeviceParams->ExecuteCommand( "AcquisitionStart" ), "starting acquisition" );
+    
+    set_exposure( state.exposure );
+    set_interval( state.interval );
+    set_gain( state.gain );
+
    
     //camera_get_temp();
     fprintf( stderr, "Camera temp: %f degrees.\n", state.temp );

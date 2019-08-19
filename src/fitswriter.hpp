@@ -26,6 +26,7 @@
 #include "filefits.hpp"
 #include "frame.hpp"
 
+#include <atomic>
 #include <condition_variable>
 // #include <cstdint>
 #include <list>
@@ -78,6 +79,7 @@ namespace wfwfs {
         void write_acc( void );
        
         void thread_run(void);
+        void get_range( bpx::ptime&, bpx::ptime& );
         void push( const Frame& f );
         void push(void*, bpx::ptime);
         std::shared_ptr<uint8_t> pop();
@@ -89,6 +91,7 @@ namespace wfwfs {
         int index;
         int nframes;
         int nthreads;
+        std::atomic<int> activeThreads;
         int bytes_per_pixel;
         int npixels;
         int fd;
@@ -108,8 +111,8 @@ namespace wfwfs {
         std::string acc_filename;
         Array<uint32_t> acc;
         size_t frame_count;
-        boost::posix_time::ptime first_ts, last_ts;
         
+        boost::posix_time::ptime global_first, global_last;
 
         static int activeCount, totalCount;
         static std::list<std::shared_ptr<uint8_t>> buffers;

@@ -91,8 +91,10 @@ namespace {
 
 
 FitsWriter::FitsWriter( FrameQueue& FQ, const string& afn, int nT, bool compress )
-    : running(true), do_fsync(false), do_compress(compress), index(0), nthreads(nT), npixels(FQ.width*FQ.height), fd(-1),
-      do_acc(false), acc_filename(afn), first_ts(bpx::not_a_date_time), last_ts(bpx::not_a_date_time), fq(FQ) {
+    : running(true), do_fsync(false), do_compress(compress), index(0), nthreads(nT), activeThreads(0),
+      npixels(FQ.width*FQ.height), fd(-1), do_acc(false), acc_filename(afn),
+      global_first(bpx::not_a_date_time), global_last(bpx::not_a_date_time),
+      fq(FQ) {
 
     bytes_per_pixel = (fq.depth-1)/8 + 1;
     frame_count = 0;
@@ -122,8 +124,8 @@ FitsWriter::~FitsWriter() {
     }
     
     if( do_write || do_acc ) {
-        if( !first_ts.is_not_a_date_time() && !last_ts.is_not_a_date_time() ) {
-            add_save( first_ts, last_ts );
+        if( !global_first.is_not_a_date_time() && !global_last.is_not_a_date_time() ) {
+            add_save( global_first, global_last );
         }
     }
     
@@ -156,17 +158,21 @@ void FitsWriter::makeHdr( void ) {
     Fits::insertCard( cards, Fits::makeCard<string>( "EXTNAME", "Main" ) );
     Fits::insertCard( cards, Fits::makeCard<string>( "TAB_HDUS", "TABULATIONS;DATE-BEG" ) );
     
-    string timestamp = to_iso_extended_string( first_ts );
-    size_t pos = timestamp.find_last_of('.');
-    string timestamp_s = timestamp;
-    if( pos != string::npos ) timestamp_s = timestamp.substr(0,pos);
-    Fits::insertCard( cards, Fits::makeCard<string>( "DATE", timestamp ) );
-    Fits::insertCard( cards, Fits::makeCard<string>( "DATE-OBS", timestamp_s ) );
-    bpx::time_duration elapsed = (last_ts - first_ts);
-    first_ts += elapsed/2;
-    Fits::insertCard( cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(first_ts), "Average time of observations" ) );
-    Fits::insertCard( cards, Fits::makeCard( "DATE-END", to_iso_extended_string(last_ts), "End time of observations" ) );
+    bpx::ptime first(bpx::not_a_date_time), last(bpx::not_a_date_time);
+    get_range( first, last );
 
+    if( !first.is_not_a_date_time() && !last.is_not_a_date_time() ) {
+        string timestamp = to_iso_extended_string( first );
+        size_t pos = timestamp.find_last_of('.');
+        string timestamp_s = timestamp;
+        if( pos != string::npos ) timestamp_s = timestamp.substr(0,pos);
+        Fits::insertCard( cards, Fits::makeCard<string>( "DATE", timestamp ) );
+        Fits::insertCard( cards, Fits::makeCard<string>( "DATE-OBS", timestamp_s ) );
+        bpx::time_duration elapsed = (last - first);
+        first += elapsed/2;
+        Fits::insertCard( cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(first), "Average time of observations" ) );
+        Fits::insertCard( cards, Fits::makeCard( "DATE-END", to_iso_extended_string(last), "End time of observations" ) );
+    }
     Fits::insertCard( cards, Fits::makeCard<string>( "WFWFSVER", getVersionString() ) );
     
     cards.insert( cards.end(), globalMeta.begin(), globalMeta.end() );      // copy global meta-data.
@@ -185,11 +191,12 @@ void FitsWriter::save( const string& filename, size_t& next_frame, int nF ) {
     do_compress = (do_compress && do_write && (bytes_per_pixel == 2) );
     nthreads = do_compress?nthreads:1;
 
+    unique_lock<mutex> wlock(writeMtx);
+    index = 0;
     offsets.assign( 2*nframes, 0 );
     frames.clear();
     times.clear();
     
-    unique_lock<mutex> wlock(writeMtx);
     
     running = true;
     for( int i=0; i<nthreads; ++i ) {
@@ -221,7 +228,6 @@ void FitsWriter::save( const string& filename, size_t& next_frame, int nF ) {
         hdrEnd = ((hdr->primaryHDU.cards.size()-1)/36 + 1)*2880;		// end of primary header, and possibly start of compressed header
         dataStart = hdrEnd;
         if ( do_compress ) {
-            index = 0;
             dataStart += 2880+nframes*2*sizeof(int);
         }
         lseek( fd, dataStart, SEEK_SET );	// set file-pointer to where the frames should be saved.
@@ -241,24 +247,35 @@ void FitsWriter::save( const string& filename, size_t& next_frame, int nF ) {
 
 void FitsWriter::wait( void ) {
 
-    {
-        unique_lock<mutex> lock(queueMtx);
-        while( !frames.empty() ) cond.wait_for(lock,std::chrono::milliseconds(1));
-        running = false;
-    }
-    cond.notify_all();
+    try {
+        {
+            unique_lock<mutex> lock(queueMtx);
+            while( !frames.empty() ) {
+                cond.wait_for(lock,std::chrono::milliseconds(1));
+            }
+            running = false;
+        }
+        while( activeThreads ) {
+            cond.notify_all();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
 
-    for( auto& t: threads ) {
-        cond.notify_all();      // keep notifying just in case the last thread had not made it to the conditional before the main-thread woke up from the while-loop.
-        t.join();
+        for( auto& t: threads ) {
+            if( t.joinable() ) {
+                t.join();
+            }
+        }
+        threads.clear();
+    } catch ( const std::system_error& e ) {
+        cout << "FitsWriter::wait: exception caught: " << e.what() << endl;
     }
-    threads.clear();
-    
 }
+
 
 
 void FitsWriter::thread_run(void) {
 
+    activeThreads++;
     shared_ptr<uint8_t> f;
     shared_ptr<uint8_t> cData;
     if( do_compress ) {
@@ -323,7 +340,33 @@ void FitsWriter::thread_run(void) {
     if( cData ) {
         return_buf( cData );
     }
+    
+    activeThreads--;
 
+}
+
+
+void FitsWriter::get_range( bpx::ptime& first, bpx::ptime& last ) {
+
+    first = last = bpx::not_a_date_time;
+    lock_guard<mutex> lock(queueMtx);
+    if( times.empty() ) return;
+    
+    first = last = times.front();
+    for( auto& t: times ) {
+        if( first.is_not_a_date_time() || (t < first) ) {
+            first = t;
+        }
+        if( last.is_not_a_date_time() || (t > last) ) {
+            last = t;
+        }
+        if( global_first.is_not_a_date_time() || (t < global_first) ) {
+            global_first = t;
+        }
+        if( global_last.is_not_a_date_time() || (t > global_last) ) {
+            global_last = t;
+        }
+    }
 }
 
 
@@ -335,12 +378,6 @@ void FitsWriter::push( const Frame& f ) {
             lock_guard<mutex> lock(queueMtx);
             frames.push_back( buf );
             times.push_back( f.timestamp );
-            if( first_ts.is_not_a_date_time() || (first_ts > f.timestamp) ) {
-                first_ts = f.timestamp;
-            }
-            if( last_ts.is_not_a_date_time() || (last_ts < f.timestamp) ) {
-                last_ts = f.timestamp;
-            }
         }
         cond.notify_all();
     }
@@ -539,6 +576,7 @@ void FitsWriter::write_acc( void ) {
     Fits::removeCards( cards, "NAXIS1" );
     Fits::removeCards( cards, "NAXIS2" );
     Fits::removeCards( cards, "TAB_HDUS" );
+    Fits::removeCards( cards, "FRAMENUM" );
     
     float exp_time = Fits::getValue<float>( cards, "XPOSURE" );
     if( exp_time != 0.0 ) {
@@ -547,17 +585,17 @@ void FitsWriter::write_acc( void ) {
     }
     Fits::updateCard( cards, Fits::makeCard( "NSUMEXP", frame_count, "Number of summed exposures" ) );
     
-    string timestamp = to_iso_extended_string( first_ts );
+    string timestamp = to_iso_extended_string( global_first );
     size_t pos = timestamp.find_last_of('.');
     string timestamp_s = timestamp;
     if( pos != string::npos ) timestamp_s = timestamp.substr(0,pos);
     Fits::updateCard( cards, Fits::makeCard<string>( "DATE-OBS", timestamp_s ) );
     Fits::updateCard( cards, Fits::makeCard<string>( "DATE", timestamp ) );
     Fits::updateCard( cards, Fits::makeCard( "DATE-BEG", timestamp, "Start time of summed observations" ) );
-    bpx::time_duration elapsed = (last_ts - first_ts);
-    first_ts += elapsed/2;
-    Fits::updateCard( cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(first_ts), "Average time of summed observations" ) );
-    Fits::updateCard( cards, Fits::makeCard( "DATE-END", to_iso_extended_string(last_ts), "End time of summed observations" ) );
+    bpx::time_duration elapsed = (global_last - global_first);
+    global_first += elapsed/2;
+    Fits::updateCard( cards, Fits::makeCard( "DATE-AVG", to_iso_extended_string(global_first), "Average time of summed observations" ) );
+    Fits::updateCard( cards, Fits::makeCard( "DATE-END", to_iso_extended_string(global_last), "End time of summed observations" ) );
     Fits::updateCard( cards, Fits::makeCard<string>( "FILENAME", fnPath.filename().string() ) );
 
     try {
@@ -593,9 +631,11 @@ std::shared_ptr<uint8_t> FitsWriter::get_buf( size_t N ) {
 
 
 void FitsWriter::return_buf( std::shared_ptr<uint8_t>& buf ) {
-    lock_guard<mutex> block(bufMtx);
-    buffers.push_back(buf);
-    buf.reset();
+    if( buf ) {
+        lock_guard<mutex> block(bufMtx);
+        buffers.push_back(buf);
+        buf.reset();
+    }
 }
 
 

@@ -41,10 +41,11 @@ namespace wfwfs {
     class DimmSet {
     public:
         struct pair_info {              // container for statistics/motion a given pair of cells
+            pair_info() : diff(0.0), separation(10) {}
             PointF diff;
             float separation;
             struct snapshot_t {
-                snapshot_t() : ok(false) {};
+                snapshot_t() : squared_shift(0.0), ok(false) {};
                 PointF squared_shift;           
                 bool ok;
             };

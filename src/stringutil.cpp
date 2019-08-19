@@ -224,36 +224,39 @@ vector<set<string>> wfwfs::make_template( const vector<string>& list, string& ou
 
 string wfwfs::alignCenter(const string& s, size_t n, unsigned char c) {
 
-    if(s.length() > n) {
-        return s.substr(0, n);
+    string ret(s);
+    if( s.length() > n ) {
+        ret.resize( n, c );
+    } else {
+        size_t nn = (n-s.length())/2;
+        // if "n-s" is odd, the extra character goes on the left side
+        ret.insert( ret.end(), nn, c );
+        ret.insert( ret.begin(), (nn+nn%2), c );
     }
-
-    string tmp  = s + string((n - s.length()) >> 1, c);
-    // if n is odd, the extra character goes on the left side
-    return string(n - tmp.length(), c) + tmp;
-
+    return ret;
 
 }
 
 
 string wfwfs::alignLeft(const string& s, size_t n, unsigned char c) {
 
-    if(s.length() > n) {
-        return s.substr(0, n);
-    }
-
-    return s + string(n - s.length(), c);
+    string ret(s);
+    ret.resize( n, c );
+    return ret;
 
 }
 
 
 string wfwfs::alignRight(const string& s, size_t n, unsigned char c) {
-
-    if(s.length() > n) {
-        return s.substr(0, n);
+    
+    string ret(s);
+    if( s.length() > n ) {
+        ret.resize( n, c );
+    } else {
+        size_t nn = n-s.length();
+        ret.insert( ret.begin(), nn, c );
     }
-
-    return string(n - s.length(), c) + s;
+    return ret;
 
 }
 

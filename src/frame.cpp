@@ -30,7 +30,7 @@ using namespace std;
 
 namespace bpx = boost::posix_time;
 
-FrameQueue::FrameQueue() : frameSize(0), blockSize(0), counter(1), width(0), height(0), depth(0) {
+FrameQueue::FrameQueue() : frameSize(0), blockSize(0), counter(1), width(0), height(0), depth(0), currentFrame(0) {
     
 }
 
@@ -75,7 +75,6 @@ void FrameQueue::resize( size_t w, size_t h, size_t nF, size_t bitdepth ) {
         f.offset = o++;
     }
 
-    current_ = frames.end();
 }
 
 
@@ -87,19 +86,22 @@ Frame& FrameQueue::getEmpty( void ) {
         throw runtime_error("The FrameQueue is empty, can not get Frame!");
     }
     
-    auto start_ = current_;
+    size_t nextFrame = currentFrame;
     while( true ) {
-        if( current_ == frames.end() ) current_ = frames.begin();
-        else current_++;
-        if( current_ == start_ ) throw runtime_error("The FrameQueue is all in use, can not get Frame!");
-        if( current_ == frames.end() || current_->uc ) continue;
-        break; // if we get here current_ can be returned.
+        if( ++nextFrame >= frames.size() ) nextFrame = 0;
+        if( frames[nextFrame].uc ) continue;
+        if( nextFrame == currentFrame ) throw runtime_error("The FrameQueue is all in use, can not get empty Frame!");
+        break; // if we get here nextFrame can be returned.
     }
+    currentFrame = nextFrame;
+    
+    Frame& nf = frames[ nextFrame ];
+    if( frames_by_id.count( nf.id ) ) {
+        frames_by_id.erase( nf.id );
+    }
+    nf.id = counter++;
 
-    frames_by_id.erase( current_->id );
-    current_->id = counter++;
-
-    return *current_;
+    return nf;
     
 }
 
@@ -158,6 +160,12 @@ Frame& FrameQueue::getFrame( size_t id, bool wait ) {
     if( frames_by_id.count(id) ) {
         return frames_by_id.at(id);
     } else if( !frames_by_id.empty() ) {   // if frame with id has already been overwritten, just return the first in the queue
+        int cnt(0);
+        while( ++cnt < 100 ) { // get next existing id
+            if( frames_by_id.count(++id) ) {
+                return frames_by_id.at(id);
+            }
+        }
         return frames_by_id.begin()->second;
     }
     

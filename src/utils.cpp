@@ -91,8 +91,8 @@ void wfwfs::maskConnected2( const T* data, uint8_t* mask, size_t sizeY, size_t s
         offsets.pop();
         if( tmpPtr[ offset ] != 2 ) continue;
         tmpPtr[ offset ] = 2;
-        if( (offset > 0) && tmpPtr[ offset+1 ] == 1 ) { offsets.push( offset+1 ); tmpPtr[ offset+1 ] = 2; }
-        if( tmpPtr[ offset-1 ] == 1 ) { offsets.push( offset-1 ); tmpPtr[ offset-1 ] = 2; }
+        if( (offset+1 < nEl) && tmpPtr[ offset+1 ] == 1 ) { offsets.push( offset+1 ); tmpPtr[ offset+1 ] = 2; }
+        if( (offset > 0) && tmpPtr[ offset-1 ] == 1 ) { offsets.push( offset-1 ); tmpPtr[ offset-1 ] = 2; }
         if( (offset+sizeX < nEl) && tmpPtr[ offset+sizeX ] == 1 ) { offsets.push( offset+sizeX ); tmpPtr[ offset+sizeX ] = 2; }
         if( (offset >= sizeX) && tmpPtr[ offset-sizeX ] == 1 ) { offsets.push( offset-sizeX ); tmpPtr[ offset-sizeX ] = 2; }
     }

@@ -623,7 +623,6 @@ namespace wfwfs {
     }
 
 }
-template string Fits::makeCard( string, string, const string& );
 template string Fits::makeCard( string, int16_t, const string& );
 template string Fits::makeCard( string, uint16_t, const string& );
 template string Fits::makeCard( string, int32_t, const string& );

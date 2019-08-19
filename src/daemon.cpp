@@ -781,8 +781,14 @@ void Daemon::save_fits( string filename_template, int nframes, uint32_t frames_p
     }
   
     shared_ptr<FitsWriter> fw;
-    fw.reset( new FitsWriter( fqueue, acc_filename, nthreads, compress ) );
-    fw->save_meta( cards );
+    try {
+        fw.reset( new FitsWriter( fqueue, acc_filename, nthreads, compress ) );
+        fw->save_meta( cards );
+    } catch ( const std::system_error& e ) {
+        cout << "Daemon::save_fits: exception caught: " << e.what() << endl;
+        return;
+    }
+    
     
     int frame_count(0);
     int file_count(0);
