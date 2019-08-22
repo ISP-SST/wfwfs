@@ -56,6 +56,7 @@ namespace wfwfs {
         bool wait_for_time( void );
         bool wait_for_telnet( void );
         bool wait_for_dimm( const std::vector<DimmSet>& );
+        float get_r0( const std::vector<DimmSet>& );
         
         // common
         std::string dir;
@@ -79,8 +80,9 @@ namespace wfwfs {
         
         // DIMM
         std::string dimm_name;
-        int dimm_duration;
-        float dimm_limit;
+        int dimm_duration, max_consecutive;
+        float dimm_limit, consecutive_limit;
+        bool trailing;
         
 
     };

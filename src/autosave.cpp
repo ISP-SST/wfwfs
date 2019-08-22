@@ -24,6 +24,7 @@
 
 #include "daemon.hpp"
 #include "seeing.hpp"
+#include "translators.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
@@ -67,8 +68,7 @@ namespace {
 
 
 AutoSave::AutoSave() : frames_per_file(20), nframes(1), as_type(TP_NONE), delay(0), min_interval(0), poll_interval(5), repeats(-1),
-                       compress(false), dimm_duration(10), dimm_limit(0.1) {
-
+                       compress(false), running(false), dimm_duration(10), max_consecutive(0), dimm_limit(0.1), consecutive_limit(0), trailing(false) {
     
 }
 
@@ -76,11 +76,11 @@ AutoSave::AutoSave() : frames_per_file(20), nframes(1), as_type(TP_NONE), delay(
 AutoSave::AutoSave(AutoSave&& rhs) : dir(rhs.dir), name(rhs.name), acc_name(rhs.acc_name),
         frames_per_file(rhs.frames_per_file), nframes(rhs.nframes), as_type(rhs.as_type), delay(rhs.delay),
         min_interval(rhs.min_interval), poll_interval(rhs.poll_interval), repeats(rhs.repeats), compress(rhs.compress),
-        time_string(rhs.time_string),
+        running(false), time_string(rhs.time_string),
         telnet_host(rhs.telnet_host), telnet_port(rhs.telnet_port), telnet_cmd(rhs.telnet_cmd), telnet_reply(rhs.telnet_reply),
-        dimm_name(rhs.dimm_name), dimm_duration(rhs.dimm_duration), dimm_limit(rhs.dimm_limit) {
+        dimm_name(rhs.dimm_name), dimm_duration(rhs.dimm_duration), max_consecutive(rhs.max_consecutive), dimm_limit(rhs.dimm_limit), consecutive_limit(rhs.consecutive_limit), trailing(rhs.trailing) {
 
-    
+
 }
 
 
@@ -110,6 +110,9 @@ void AutoSave::parsePropertyTree( const boost::property_tree::ptree& cfg_ptree, 
         dimm_name = trigger_type;
         dimm_duration = max(1,pop<int>(line));
         dimm_limit = cfg_ptree.get<float>( "limit", dimm_limit );
+        consecutive_limit = cfg_ptree.get<float>( "consecutive_limit", consecutive_limit );
+        max_consecutive = cfg_ptree.get<int>( "max_consecutive", max_consecutive );
+        trailing = cfg_ptree.get<bool>( "trailing", trailing );
     }
     
     poll_interval = cfg_ptree.get<int>( "poll_interval", 5 );
@@ -120,7 +123,6 @@ void AutoSave::parsePropertyTree( const boost::property_tree::ptree& cfg_ptree, 
     delay = cfg_ptree.get<int>( "delay", delay );
     min_interval = cfg_ptree.get<int>( "min_interval", min_interval );
 
-    
 }
 
 
@@ -142,34 +144,66 @@ void AutoSave::start( const vector<DimmSet>& dimm_sets ) {
     
     trd = std::thread([&](){
         size_t cnt(0);
+        bool go(false);
+        int consecutive_count(0);
+        size_t first_frame(0);
         while( running && (cnt++ < repeats) ) {
-            bool go(false);
-            switch( as_type ) {
-                case TP_TIME: go = wait_for_time(); break;
-                case TP_TELNET: go = wait_for_telnet(); break;
-                case TP_DIMM: go = wait_for_dimm(dimm_sets); break;
-                default: ;
+            
+            float this_climit(0.0);
+            
+            if( !go ) {
+                consecutive_count = 0;
+                first_frame = 0;
+                switch( as_type ) {
+                    case TP_TIME: go = wait_for_time(); break;
+                    case TP_TELNET: go = wait_for_telnet(); break;
+                    case TP_DIMM: go = wait_for_dimm(dimm_sets); break;
+                    default: ;
+                }
+            } else {
+                consecutive_count++;
             }
+            
             if( running && go ) {
                 Daemon& d = Daemon::get();
-                high_resolution_clock::time_point next = high_resolution_clock::now();
-                if( min_interval ) next += seconds(min_interval);
-                size_t first_frame = 0;
-                if( delay > 0 ) {
-                    this_thread::sleep_for( seconds(delay) );
-                } else if( delay < 0 ) {
-                    bpx::ptime first_frametime = bpx::microsec_clock::universal_time();
-                               first_frametime -= bpx::time_duration( 0, 0, abs(delay), 0 );
-                    first_frame = d.getNearestID( first_frametime );
+                high_resolution_clock::time_point next = high_resolution_clock::now();      // Save the timestamp when burst was started
+                      
+                if( first_frame == 0 ) {
+                    if( delay > 0 ) {
+                        this_thread::sleep_for( seconds(delay) );
+                    } else if( delay < 0 ) {
+                        bpx::ptime first_frametime = bpx::microsec_clock::universal_time() - bpx::time_duration( 0, 0, abs(delay), 0 );
+                        first_frame = d.getNearestID( first_frametime );
+                    }
+                }
+                
+                if( as_type == TP_DIMM ) {
+                    this_climit = consecutive_limit*get_r0(dimm_sets);
                 }
                 d.save_fits(  d.make_filename(name,-1,-1), nframes, frames_per_file,
                               compress, first_frame, d.make_filename(acc_name,-1,-1) );
+                
+                first_frame += nframes;
+                go = false;
+                
+                if( (as_type == TP_DIMM) && !min_interval && (consecutive_count < max_consecutive) && (this_climit > 0.0) ) {
+                    this_thread::sleep_for( seconds(dimm_duration) );       // Wait for a full period before checking r0
+                    float r0 = get_r0(dimm_sets);
+                    if( r0 >= this_climit ) {
+                        go = true;
+                        continue;
+                    }
+                }
+                
+                if( running && min_interval ) {
+                    next += seconds(min_interval);              // sleep until min_interval has passed 
+                    this_thread::sleep_until( next );
+                }
 
-                if( running && min_interval ) this_thread::sleep_until( next );
-                      
             } else {
                 usleep(100000);     // just to avoid a busy-loop.
             }
+            
         }
     });
 
@@ -228,15 +262,25 @@ bool AutoSave::wait_for_telnet( void ) {
 
 bool AutoSave::wait_for_dimm( const vector<DimmSet>& dimm_sets ) {
 
+    float previous_r0;
     bool reply_ok(false);
+    bool r0_reached(false);
     for( auto& ds: dimm_sets ) {
         if( iequals( dimm_name, ds.get_name() ) ) {
             while( running && !reply_ok ) {
                 PointF v = ds.get_r0( bpx::microsec_clock::universal_time(), dimm_duration );
                 float r0 = (v.x+v.y)/2;
-                if( r0 >= dimm_limit ) {
-                    reply_ok = true;
-                    break;
+                if( !r0_reached && (r0 >= dimm_limit) ) {
+                    r0_reached = true;
+                    previous_r0 = r0;
+                }
+                if( r0_reached ) {
+                    if( trailing && (r0 >= previous_r0) ) {
+                        previous_r0 = r0;
+                    } else {
+                        reply_ok = true;
+                        break;
+                    }
                 }
                 this_thread::sleep_for( seconds(poll_interval) );
             }
@@ -244,6 +288,20 @@ bool AutoSave::wait_for_dimm( const vector<DimmSet>& dimm_sets ) {
     }
     
     return reply_ok;
+    
+}
+
+
+float AutoSave::get_r0( const vector<DimmSet>& dimm_sets ) {
+
+    float r0(0.0);
+    for( auto& ds: dimm_sets ) {
+        if( iequals( dimm_name, ds.get_name() ) ) {
+            PointF v = ds.get_r0( bpx::microsec_clock::universal_time(), dimm_duration );
+            r0 = (v.x+v.y)/2;
+        }
+    }
+    return r0;
     
 }
 

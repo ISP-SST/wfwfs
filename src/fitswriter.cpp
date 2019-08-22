@@ -360,13 +360,15 @@ void FitsWriter::get_range( bpx::ptime& first, bpx::ptime& last ) {
         if( last.is_not_a_date_time() || (t > last) ) {
             last = t;
         }
-        if( global_first.is_not_a_date_time() || (t < global_first) ) {
-            global_first = t;
-        }
-        if( global_last.is_not_a_date_time() || (t > global_last) ) {
-            global_last = t;
-        }
     }
+    
+    if( global_first.is_not_a_date_time() || (first < global_first) ) {
+        global_first = first;
+    }
+    if( global_last.is_not_a_date_time() || (last > global_last) ) {
+        global_last = last;
+    }
+
 }
 
 

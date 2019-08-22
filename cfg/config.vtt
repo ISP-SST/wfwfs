@@ -68,6 +68,8 @@ save {
     delay = -30
     nframes = 400
     frames_per_file = 20
+    consecutive_limit = 1.1
+    max_consecutive = 1000
     min_interval = 300
     poll_interval = 1
     compress = 1

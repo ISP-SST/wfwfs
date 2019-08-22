@@ -36,10 +36,10 @@ namespace bpx = boost::posix_time;
 using boost::algorithm::iequals;
 
 float Seeing::pixelsize(8.0E-6);
-float Seeing::arcsecs_per_pixel(0.21);
-float Seeing::meters_per_pixel(0.000463519);
 float Seeing::diam(0.135);
 float Seeing::diam_px(291.25);
+float Seeing::arcsecs_per_pixel(0.21);
+float Seeing::meters_per_pixel(0.000463519);
 float Seeing::lambda(500e-9);
 double Seeing::radians_per_pixel(0);
 double Seeing::dimm_K(0);

@@ -1,13 +1,20 @@
-outputdir = /scratch/tomas/wfwfs/slask/
-vtt_outputdir = /scratch/tomas/vtt/
+xoutputdir = /scratch/tomas/wfwfs/slask/
+outputdir = /scratch/tomas/vtt/
+xoutputdir = /scratch/tomas_local/wfwfs/slask/
+xoutputdir = /scratch/tomas_local/vtt/
 ; 0= naive (invert flat and cap to [0.1,4]), 1= global gain-generation, 2= generate gain for each subfield individually and then merge
 ; 1/2 use a bit more sophistication to detect bad pixels.
 gain_method = 2
 subtract_plane
-frame_queue = 50
+frame_queue = 200
 arcsecs_per_pixel = 0.21
-subaperture_diameter = 0.135
-subaperture_pixels = 291.25
+sst_subaperture_diameter = 0.135
+sst_subaperture_pixels = 291.25
+vtt_subaperture_diameter = 0.140
+vtt_subaperture_pixels = 380
+subaperture_diameter = 0.140
+subaperture_pixels = 380
+sub_sep_vtt_x = 386
 wavelength = 500e-9
 camera {
     n_buf = 20
@@ -20,8 +27,16 @@ camera {
     interval = 0.08
     gain = 0
     camera_id = camXXXVI
-    camera_type = /scratch/tomas/wfwfs/ffov_8/
-    vtt_camera_type = /scratch/tomas/vtt/2019-05-14/14:41:18
+    xcamera_type = /scratch/tomas_local/wfwfs/ffov_12s/
+    xcamera_type = /scratch/tomas/vtt/2019-08-05/11:10:33/
+    xcamera_type = /storage/wfwfs/vtt/2019-06-19/08:32:07/
+    xcamera_type = /storage/wfwfs/vtt/2019-05-15/07:55:28/
+    xcamera_type = /scratch/tomas_local/vtt/2019-05-15/07:55:28/
+    xcamera_type = /scratch/tomas/wfwfs/ffov_12/
+    xcamera_type = /scratch/tomas/vtt/2019-05-14/14:41:18
+    xcamera_type = /scratch/tomas_local/vtt/2019-08-06/09:04:55
+    camera_type = /scratch/tomas/vtt/2019-08-06/09:04:55
+    xcamera_type = /scratch_local/tomas/wfwfs/vtt/data_00000_0000020.fits
 }
 meta {
     OBSERVER = Tomas Hillberg
@@ -32,13 +47,17 @@ meta {
 }
 xsave {
     name = %DATE%/%TIME%/wfwfs_%FRAMENUMBER%.fits
-    trigger = 4-corners 30
+    acc_name = %DATE%/%TIME%/acc.fits
+    trigger = triangle 5
     limit = 0.08
-    delay = -30
-    nframes = 400
-    frames_per_file = 20
-    min_interval = 300
-    poll_interval = 3
+    consecutive_limit = 1.1
+    max_consecutive = 1000
+    xtrailing
+    delay = -5
+    nframes = 100
+    frames_per_file = 18
+    interval = 30
+    poll_interval = 1
     compress = 1
 }
 xsave {
@@ -67,26 +86,45 @@ log {
     interval = 1
     min_lock = 0.3
     xcolumns = 4-corners triangle 4-corners 2 triangle 2 4-corners 10 4-corners_sub 4-corners_sub 2 4-corners_sub 10
-    columns = 4-corners 5 4-corners 30 4-corners 180 triangle triangle 5 triangle 180
+    columns = triangle triangle 5 triangle 180 triangle_sub triangle_sub 5 triangle_sub 180
+    xcolumns = triangle 5
 }
 dimm {
+    name triangle
+    cell_size = 51
+    cell_pos8 = 699,463,710,1611,1030,656,1682,1035
+    xcell_pos = 530,1035,1027,747,1523,461,1525,1610
+    cell_pos = 701,1234,1033,1423,1365,1228,1033,651
+    ref_cell = 1
+    max_shift = 10
+    min_lock = 0.5
+    interval = 1
+    duration = 2
+    running_average = 20
+}
+dimm {
+    name triangle_sub
+    cell_size = 51
+    cell_pos8 = 699,463,710,1611,1030,656,1682,1035
+    xcell_pos = 530,1035,1027,747,1523,461,1525,1610
+    xcell_pos = 699,463,1030,656,710,1611,1682,1035
+    cell_pos = 701,1234,1033,1423,1365,1228,1033,651
+    ref_cell = 1
+    xsubcell_pos = 0,0,-17,-17,17,17,-17,17,17,-17,0,17,0,-17,17,0,-17,0
+    subcell_pos = 0,0
+    subcell_size = 17
+    max_shift = 10
+    min_lock = 0.3
+    interval = 1
+    duration = 2
+    running_average = 20
+}
+xdimm {
     name 4-corners
     cell_size = 51
     cell_pos = 530,461,532,1612,1027,747,1526,458,1528,1613
     vtt_cell_pos = 699,463,710,1611,1030,656,1356,460,1363,1606
     ref_cell = 2
-    max_shift = 10
-    min_lock = 0.3
-    cadence = 1
-    duration = 5
-    running_average = 30
-}
-dimm {
-    name triangle
-    cell_size = 51
-    cell_pos = 530,1037,1027,747,1526,458,1528,1613
-    vtt_cell_pos = 699,463,710,1611,1030,656,1682,1035
-    ref_cell = 1
     max_shift = 10
     min_lock = 0.3
     cadence = 1
